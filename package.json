@@ -1,0 +1,15 @@
+{
+  "name": "kenk-community-bot",
+  "version": "1.0.0",
+  "description": "Kenk Community Discord Bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.24.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
