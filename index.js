@@ -30,7 +30,7 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID || "";
 
-const STAFF_ROLE_ID = process.env.STAFF_ROLE_ID;
+const STAFF_ROLE_ID = process.env.STAFF_ROLE_ID || "1506669903673950338";
 const TICKET_CATEGORY_ID =
   process.env.TICKET_CATEGORY_ID || "1507026446940508351";
 
@@ -128,7 +128,7 @@ function getPrefix(guildId) {
 }
 
 function cleanText(text, max = 1024) {
-  return String(text || "None").slice(0, max);
+  return String(text || "None provided").slice(0, max);
 }
 
 function memberMention(member) {
@@ -194,15 +194,6 @@ function isStaff(member) {
   );
 }
 
-function canModerate(member) {
-  return (
-    member.permissions.has(PermissionFlagsBits.ModerateMembers) ||
-    member.permissions.has(PermissionFlagsBits.ManageMessages) ||
-    member.permissions.has(PermissionFlagsBits.KickMembers) ||
-    member.permissions.has(PermissionFlagsBits.BanMembers)
-  );
-}
-
 function getWarnings(guildId, userId) {
   if (!data.warnings[guildId]) {
     data.warnings[guildId] = {};
@@ -232,7 +223,38 @@ async function safeReply(interaction, payload) {
 }
 
 /* =========================================================
-   TICKET QUESTIONS
+   DURATION PARSER (for giveaways: 30s, 10m, 2h, 3d)
+========================================================= */
+
+function parseDuration(input) {
+  if (!input) return null;
+
+  const match = /^(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)$/i.exec(
+    input.trim()
+  );
+
+  if (!match) return null;
+
+  const amount = parseInt(match[1], 10);
+  const unit = match[2].toLowerCase();
+
+  let multiplier;
+
+  if (unit.startsWith("s")) multiplier = 1000;
+  else if (unit.startsWith("m")) multiplier = 60 * 1000;
+  else if (unit.startsWith("h")) multiplier = 60 * 60 * 1000;
+  else if (unit.startsWith("d")) multiplier = 24 * 60 * 60 * 1000;
+  else return null;
+
+  const ms = amount * multiplier;
+
+  if (ms <= 0) return null;
+
+  return ms;
+}
+
+/* =========================================================
+   TICKET TYPES (question fields per category)
 ========================================================= */
 
 const ticketTypes = {
@@ -240,10 +262,25 @@ const ticketTypes = {
     label: "General Support",
     emoji: "🎟️",
     description: "General questions and server help",
-    questions: [
-      "What do you need help with?",
-      "What happened or what are you trying to do?",
-      "Is there anything else we should know?"
+    fields: [
+      {
+        id: "issue",
+        label: "What do you need help with?",
+        style: TextInputStyle.Short,
+        required: true
+      },
+      {
+        id: "details",
+        label: "What happened / what are you trying to do?",
+        style: TextInputStyle.Paragraph,
+        required: true
+      },
+      {
+        id: "extra",
+        label: "Anything else we should know?",
+        style: TextInputStyle.Paragraph,
+        required: false
+      }
     ]
   },
 
@@ -251,10 +288,31 @@ const ticketTypes = {
     label: "Script & Bug Report",
     emoji: "🛠️",
     description: "Report scripts, bugs or technical problems",
-    questions: [
-      "What bug or script problem are you experiencing?",
-      "What were you doing when the problem happened?",
-      "Can you provide any useful details or screenshots?"
+    fields: [
+      {
+        id: "scriptName",
+        label: "Script Name",
+        style: TextInputStyle.Short,
+        required: true
+      },
+      {
+        id: "issue",
+        label: "What bug/problem are you experiencing?",
+        style: TextInputStyle.Paragraph,
+        required: true
+      },
+      {
+        id: "steps",
+        label: "What were you doing when it happened?",
+        style: TextInputStyle.Paragraph,
+        required: false
+      },
+      {
+        id: "extra",
+        label: "Additional details / screenshot links",
+        style: TextInputStyle.Paragraph,
+        required: false
+      }
     ]
   },
 
@@ -262,10 +320,25 @@ const ticketTypes = {
     label: "Booster Rewards",
     emoji: "💎",
     description: "Questions about booster rewards",
-    questions: [
-      "What booster reward are you asking about?",
-      "When did you boost the server?",
-      "Is there anything else you need help with?"
+    fields: [
+      {
+        id: "reward",
+        label: "What booster reward is this about?",
+        style: TextInputStyle.Short,
+        required: true
+      },
+      {
+        id: "boostDate",
+        label: "When did you boost the server?",
+        style: TextInputStyle.Short,
+        required: false
+      },
+      {
+        id: "extra",
+        label: "Anything else you need help with?",
+        style: TextInputStyle.Paragraph,
+        required: false
+      }
     ]
   },
 
@@ -273,21 +346,51 @@ const ticketTypes = {
     label: "Staff Report",
     emoji: "👮",
     description: "Report a staff or helper issue",
-    questions: [
-      "Who are you reporting?",
-      "What happened?",
-      "Do you have evidence or additional information?"
+    fields: [
+      {
+        id: "reportedUser",
+        label: "Who are you reporting?",
+        style: TextInputStyle.Short,
+        required: true
+      },
+      {
+        id: "whatHappened",
+        label: "What happened?",
+        style: TextInputStyle.Paragraph,
+        required: true
+      },
+      {
+        id: "evidence",
+        label: "Evidence or additional information?",
+        style: TextInputStyle.Paragraph,
+        required: false
+      }
     ]
   },
 
   giveaway: {
     label: "Giveaway Support",
     emoji: "🎁",
-    description: "Giveaway questions and problems",
-    questions: [
-      "Which giveaway are you asking about?",
-      "What problem are you experiencing?",
-      "Do you have any additional information?"
+    description: "Host requests, claiming a prize, or giveaway issues",
+    fields: [
+      {
+        id: "type",
+        label: "Hosting a giveaway or claiming a prize?",
+        style: TextInputStyle.Short,
+        required: true
+      },
+      {
+        id: "details",
+        label: "Giveaway name / prize details",
+        style: TextInputStyle.Paragraph,
+        required: true
+      },
+      {
+        id: "extra",
+        label: "Additional information",
+        style: TextInputStyle.Paragraph,
+        required: false
+      }
     ]
   },
 
@@ -295,10 +398,25 @@ const ticketTypes = {
     label: "Management Team",
     emoji: "👑",
     description: "Management related support",
-    questions: [
-      "What would you like to contact management about?",
-      "Please explain the situation.",
-      "Is there anything else management should know?"
+    fields: [
+      {
+        id: "topic",
+        label: "What would you like to contact management about?",
+        style: TextInputStyle.Short,
+        required: true
+      },
+      {
+        id: "explanation",
+        label: "Please explain the situation",
+        style: TextInputStyle.Paragraph,
+        required: true
+      },
+      {
+        id: "extra",
+        label: "Anything else management should know?",
+        style: TextInputStyle.Paragraph,
+        required: false
+      }
     ]
   }
 };
@@ -316,39 +434,16 @@ function ticketPanelEmbed() {
     .setTitle("🎟️ Need Assistance?")
     .setDescription(
       "Select a ticket category below.\n\n" +
+      "You'll be asked a few quick questions first — once you submit them, your ticket channel will be created.\n\n" +
       "Our support team will assist you as soon as possible."
     )
     .addFields(
-      {
-        name: "🎟️ General Support",
-        value: "General questions and server help",
-        inline: false
-      },
-      {
-        name: "🛠️ Script & Bug Report",
-        value: "Report bugs or script problems",
-        inline: false
-      },
-      {
-        name: "💎 Booster Rewards",
-        value: "Questions about booster rewards",
-        inline: false
-      },
-      {
-        name: "👮 Staff Report",
-        value: "Report a staff or helper issue",
-        inline: false
-      },
-      {
-        name: "🎁 Giveaway Support",
-        value: "Giveaway questions and problems",
-        inline: false
-      },
-      {
-        name: "👑 Management Team",
-        value: "Contact the management team",
-        inline: false
-      }
+      { name: "🎟️ General Support", value: "General questions and server help", inline: false },
+      { name: "🛠️ Script & Bug Report", value: "Report bugs or script problems", inline: false },
+      { name: "💎 Booster Rewards", value: "Questions about booster rewards", inline: false },
+      { name: "👮 Staff Report", value: "Report a staff or helper issue", inline: false },
+      { name: "🎁 Giveaway Support", value: "Giveaway questions and problems", inline: false },
+      { name: "👑 Management Team", value: "Contact the management team", inline: false }
     )
     .setFooter({
       text: "Kenk Community • Support Team"
@@ -373,47 +468,47 @@ function ticketPanelRow() {
 }
 
 /* =========================================================
-   TICKET OPEN
+   TICKET MODAL (shown BEFORE the channel is created)
 ========================================================= */
 
-async function openTicket(interaction, type) {
+function buildTicketModal(type) {
+  const ticket = ticketTypes[type];
+
+  const modal = new ModalBuilder()
+    .setCustomId(`ticket_modal_${type}`)
+    .setTitle(ticket.label.slice(0, 45));
+
+  const rows = ticket.fields.slice(0, 5).map(field => {
+    const input = new TextInputBuilder()
+      .setCustomId(field.id)
+      .setLabel(field.label.slice(0, 45))
+      .setStyle(field.style)
+      .setRequired(field.required)
+      .setMaxLength(field.style === TextInputStyle.Paragraph ? 1000 : 200);
+
+    return new ActionRowBuilder().addComponents(input);
+  });
+
+  modal.addComponents(...rows);
+
+  return modal;
+}
+
+/* =========================================================
+   TICKET OPEN (called AFTER the modal is submitted)
+========================================================= */
+
+async function openTicket(interaction, type, answers) {
   const guild = interaction.guild;
   const user = interaction.user;
   const ticket = ticketTypes[type];
-
-  if (!ticket) {
-    return safeReply(interaction, {
-      embeds: [errorEmbed("Invalid ticket category.")],
-      ephemeral: true
-    });
-  }
-
-  const existing = Object.values(data.tickets).find(
-    t =>
-      t.guildId === guild.id &&
-      t.userId === user.id &&
-      t.closed !== true
-  );
-
-  if (existing) {
-    return safeReply(interaction, {
-      embeds: [
-        errorEmbed(
-          `You already have an open ticket: <#${existing.channelId}>`
-        )
-      ],
-      ephemeral: true
-    });
-  }
 
   const category = guild.channels.cache.get(TICKET_CATEGORY_ID);
 
   if (!category || category.type !== ChannelType.GuildCategory) {
     return safeReply(interaction, {
       embeds: [
-        errorEmbed(
-          `Ticket category \`${TICKET_CATEGORY_ID}\` could not be found.`
-        )
+        errorEmbed(`Ticket category \`${TICKET_CATEGORY_ID}\` could not be found.`)
       ],
       ephemeral: true
     });
@@ -477,6 +572,7 @@ async function openTicket(interaction, type) {
     userId: user.id,
     type,
     category: ticket.label,
+    answers,
     claimedBy: null,
     openedAt: Date.now(),
     closed: false
@@ -484,23 +580,24 @@ async function openTicket(interaction, type) {
 
   saveData();
 
-  const questions = ticket.questions
-    .map((question, index) => `${index + 1}. ${question}`)
-    .join("\n");
+  const answerFields = ticket.fields.map(f => ({
+    name: f.label,
+    value: cleanText(answers[f.id]),
+    inline: false
+  }));
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.red)
     .setTitle("Ticket Opened")
     .setDescription(
-      `Thank you for contacting support.\n` +
-      `Please describe your issue and wait for a response.\n\n` +
-      `**${ticket.label}**\n\n` +
-      `**Please answer these questions:**\n${questions}`
+      `Thank you for contacting support, ${user}.\n` +
+      `Please wait for a staff member to respond.\n\n` +
+      `**Category:** ${ticket.emoji} ${ticket.label}`
     )
-    .addFields({
-      name: "Status",
-      value: "🟢 Open • Unclaimed"
-    })
+    .addFields(
+      { name: "Status", value: "🟢 Open • Unclaimed" },
+      ...answerFields
+    )
     .setFooter({
       text: `Kenk Community • ${ticket.label}`
     })
@@ -526,23 +623,7 @@ async function openTicket(interaction, type) {
     components: [buttons]
   });
 
-  await channel.send({
-    embeds: [
-      new EmbedBuilder()
-        .setColor(COLORS.gray)
-        .setDescription(
-          `**Ticket category:** ${ticket.emoji} ${ticket.label}\n\n` +
-          `Please answer the questions above so staff can help you faster.`
-        )
-        .setFooter({
-          text: "Kenk Community Support"
-        })
-    ]
-  });
-
-  const transcriptChannel = guild.channels.cache.get(
-    TRANSCRIPT_CHANNEL_ID
-  );
+  const transcriptChannel = guild.channels.cache.get(TRANSCRIPT_CHANNEL_ID);
 
   if (transcriptChannel?.isTextBased()) {
     await transcriptChannel.send({
@@ -551,36 +632,19 @@ async function openTicket(interaction, type) {
           .setColor(COLORS.green)
           .setTitle("🎟️ Ticket Opened")
           .addFields(
-            {
-              name: "User",
-              value: `<@${user.id}>`,
-              inline: true
-            },
-            {
-              name: "Category",
-              value: ticket.label,
-              inline: true
-            },
-            {
-              name: "Channel",
-              value: `<#${channel.id}>`,
-              inline: true
-            }
+            { name: "User", value: `<@${user.id}>`, inline: true },
+            { name: "Category", value: ticket.label, inline: true },
+            { name: "Channel", value: `<#${channel.id}>`, inline: true }
           )
           .setTimestamp()
-          .setFooter({
-            text: "Kenk Community • Ticket Logs"
-          })
+          .setFooter({ text: "Kenk Community • Ticket Logs" })
       ]
     });
   }
 
   return safeReply(interaction, {
     embeds: [
-      successEmbed(
-        "Ticket Created",
-        `Your ticket has been opened: <#${channel.id}>`
-      )
+      successEmbed("Ticket Created", `Your ticket has been opened: <#${channel.id}>`)
     ],
     ephemeral: true
   });
@@ -595,9 +659,7 @@ async function getAllMessages(channel) {
   let lastId;
 
   while (true) {
-    const options = {
-      limit: 100
-    };
+    const options = { limit: 100 };
 
     if (lastId) {
       options.before = lastId;
@@ -639,9 +701,7 @@ async function createTranscript(channel, closedBy, reason) {
     if (message.attachments.size) {
       content +=
         " | Attachments: " +
-        [...message.attachments.values()]
-          .map(a => a.url)
-          .join(", ");
+        [...message.attachments.values()].map(a => a.url).join(", ");
     }
 
     output += `[${time}] ${message.author.tag}: ${content}\n`;
@@ -691,9 +751,7 @@ async function toggleClaim(interaction) {
       m =>
         m.author.id === client.user.id &&
         m.components.length > 0 &&
-        m.components[0].components.some(
-          c => c.customId === "ticket_claim"
-        )
+        m.components[0].components.some(c => c.customId === "ticket_claim")
     );
 
     if (ticketMessage) {
@@ -702,22 +760,14 @@ async function toggleClaim(interaction) {
       const embed = EmbedBuilder.from(oldEmbed)
         .setColor(COLORS.red)
         .spliceFields(0, 1)
-        .addFields({
-          name: "Status",
-          value: "🟢 Open • Unclaimed"
-        });
+        .addFields({ name: "Status", value: "🟢 Open • Unclaimed" });
 
-      await ticketMessage.edit({
-        embeds: [embed]
-      });
+      await ticketMessage.edit({ embeds: [embed] });
     }
 
     return safeReply(interaction, {
       embeds: [
-        successEmbed(
-          "Ticket Unclaimed",
-          "The ticket is available for staff to claim again."
-        )
+        successEmbed("Ticket Unclaimed", "The ticket is available for staff to claim again.")
       ],
       ephemeral: true
     });
@@ -727,11 +777,7 @@ async function toggleClaim(interaction) {
 
   if (ticket.claimedBy && ticket.claimedBy !== interaction.user.id) {
     return safeReply(interaction, {
-      embeds: [
-        errorEmbed(
-          `This ticket is already claimed by <@${ticket.claimedBy}>.`
-        )
-      ],
+      embeds: [errorEmbed(`This ticket is already claimed by <@${ticket.claimedBy}>.`)],
       ephemeral: true
     });
   }
@@ -739,12 +785,6 @@ async function toggleClaim(interaction) {
   /* CLAIM */
 
   ticket.claimedBy = interaction.user.id;
-
-  /*
-    Hide the staff role.
-    The claimer gets their own member overwrite,
-    so they can still see the ticket.
-  */
 
   await channel.permissionOverwrites.edit(STAFF_ROLE_ID, {
     ViewChannel: false,
@@ -766,9 +806,7 @@ async function toggleClaim(interaction) {
     m =>
       m.author.id === client.user.id &&
       m.components.length > 0 &&
-      m.components[0].components.some(
-        c => c.customId === "ticket_claim"
-      )
+      m.components[0].components.some(c => c.customId === "ticket_claim")
   );
 
   if (ticketMessage) {
@@ -777,26 +815,17 @@ async function toggleClaim(interaction) {
     const embed = EmbedBuilder.from(oldEmbed)
       .setColor(COLORS.orange)
       .spliceFields(0, 1)
-      .addFields({
-        name: "Status",
-        value: `🟠 Claimed by <@${interaction.user.id}>`
-      });
+      .addFields({ name: "Status", value: `🟠 Claimed by <@${interaction.user.id}>` });
 
-    await ticketMessage.edit({
-      embeds: [embed]
-    });
+    await ticketMessage.edit({ embeds: [embed] });
   }
 
   await channel.send({
     embeds: [
       new EmbedBuilder()
         .setColor(COLORS.orange)
-        .setDescription(
-          `📌 This ticket has been claimed by ${interaction.user}.`
-        )
-        .setFooter({
-          text: "Other staff members can no longer see this ticket."
-        })
+        .setDescription(`📌 This ticket has been claimed by ${interaction.user}.`)
+        .setFooter({ text: "Other staff members can no longer see this ticket." })
         .setTimestamp()
     ]
   });
@@ -829,9 +858,7 @@ async function showCloseModal(interaction) {
     .setRequired(true)
     .setMaxLength(1000);
 
-  modal.addComponents(
-    new ActionRowBuilder().addComponents(reason)
-  );
+  modal.addComponents(new ActionRowBuilder().addComponents(reason));
 
   return interaction.showModal(modal);
 }
@@ -866,9 +893,7 @@ async function closeTicket(interaction, reason) {
       new EmbedBuilder()
         .setColor(COLORS.red)
         .setTitle("🔒 Closing Ticket")
-        .setDescription(
-          `This ticket is being closed.\n\n**Reason:** ${reason}`
-        )
+        .setDescription(`This ticket is being closed.\n\n**Reason:** ${reason}`)
         .setTimestamp()
     ]
   });
@@ -876,21 +901,12 @@ async function closeTicket(interaction, reason) {
   let transcript;
 
   try {
-    transcript = await createTranscript(
-      channel,
-      interaction.user,
-      reason
-    );
+    transcript = await createTranscript(channel, interaction.user, reason);
   } catch {
-    transcript = Buffer.from(
-      `Unable to generate transcript for ${channel.name}`,
-      "utf8"
-    );
+    transcript = Buffer.from(`Unable to generate transcript for ${channel.name}`, "utf8");
   }
 
-  const transcriptChannel = interaction.guild.channels.cache.get(
-    TRANSCRIPT_CHANNEL_ID
-  );
+  const transcriptChannel = interaction.guild.channels.cache.get(TRANSCRIPT_CHANNEL_ID);
 
   if (transcriptChannel?.isTextBased()) {
     await transcriptChannel.send({
@@ -899,36 +915,14 @@ async function closeTicket(interaction, reason) {
           .setColor(COLORS.red)
           .setTitle("🔒 Ticket Closed")
           .addFields(
-            {
-              name: "Ticket",
-              value: `#${channel.name}`,
-              inline: true
-            },
-            {
-              name: "Opened By",
-              value: `<@${ticket.userId}>`,
-              inline: true
-            },
-            {
-              name: "Closed By",
-              value: `<@${interaction.user.id}>`,
-              inline: true
-            },
-            {
-              name: "Category",
-              value: ticket.category,
-              inline: true
-            },
-            {
-              name: "Reason",
-              value: cleanText(reason, 1024),
-              inline: false
-            }
+            { name: "Ticket", value: `#${channel.name}`, inline: true },
+            { name: "Opened By", value: `<@${ticket.userId}>`, inline: true },
+            { name: "Closed By", value: `<@${interaction.user.id}>`, inline: true },
+            { name: "Category", value: ticket.category, inline: true },
+            { name: "Reason", value: cleanText(reason, 1024), inline: false }
           )
           .setTimestamp()
-          .setFooter({
-            text: "Kenk Community • Ticket Logs"
-          })
+          .setFooter({ text: "Kenk Community • Ticket Logs" })
       ],
       files: [
         {
@@ -951,170 +945,92 @@ async function closeTicket(interaction, reason) {
 ========================================================= */
 
 const commands = [
-  new SlashCommandBuilder()
-    .setName("help")
-    .setDescription("Show the bot commands"),
+  new SlashCommandBuilder().setName("help").setDescription("Show the bot commands"),
 
-  new SlashCommandBuilder()
-    .setName("ping")
-    .setDescription("Check bot latency"),
+  new SlashCommandBuilder().setName("ping").setDescription("Check bot latency"),
 
   new SlashCommandBuilder()
     .setName("setupprefix")
     .setDescription("Change the server prefix")
     .addStringOption(o =>
-      o
-        .setName("prefix")
-        .setDescription("New prefix")
-        .setRequired(true)
-        .setMaxLength(5)
+      o.setName("prefix").setDescription("New prefix").setRequired(true).setMaxLength(5)
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   new SlashCommandBuilder()
     .setName("ban")
     .setDescription("Ban a member")
-    .addUserOption(o =>
-      o.setName("user").setDescription("Member to ban").setRequired(true)
-    )
-    .addStringOption(o =>
-      o
-        .setName("reason")
-        .setDescription("Reason")
-        .setRequired(false)
-    )
+    .addUserOption(o => o.setName("user").setDescription("Member to ban").setRequired(true))
+    .addStringOption(o => o.setName("reason").setDescription("Reason").setRequired(false))
     .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
 
   new SlashCommandBuilder()
     .setName("unban")
     .setDescription("Unban a user")
-    .addStringOption(o =>
-      o
-        .setName("userid")
-        .setDescription("User ID")
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o
-        .setName("reason")
-        .setDescription("Reason")
-        .setRequired(false)
-    )
+    .addStringOption(o => o.setName("userid").setDescription("User ID").setRequired(true))
+    .addStringOption(o => o.setName("reason").setDescription("Reason").setRequired(false))
     .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
 
   new SlashCommandBuilder()
     .setName("kick")
     .setDescription("Kick a member")
-    .addUserOption(o =>
-      o.setName("user").setDescription("Member to kick").setRequired(true)
-    )
-    .addStringOption(o =>
-      o
-        .setName("reason")
-        .setDescription("Reason")
-        .setRequired(false)
-    )
+    .addUserOption(o => o.setName("user").setDescription("Member to kick").setRequired(true))
+    .addStringOption(o => o.setName("reason").setDescription("Reason").setRequired(false))
     .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers),
 
   new SlashCommandBuilder()
     .setName("mute")
     .setDescription("Timeout a member")
-    .addUserOption(o =>
-      o.setName("user").setDescription("Member").setRequired(true)
-    )
+    .addUserOption(o => o.setName("user").setDescription("Member").setRequired(true))
     .addIntegerOption(o =>
-      o
-        .setName("minutes")
-        .setDescription("Minutes")
-        .setRequired(true)
-        .setMinValue(1)
-        .setMaxValue(40320)
+      o.setName("minutes").setDescription("Minutes").setRequired(true).setMinValue(1).setMaxValue(40320)
     )
-    .addStringOption(o =>
-      o
-        .setName("reason")
-        .setDescription("Reason")
-        .setRequired(false)
-    )
+    .addStringOption(o => o.setName("reason").setDescription("Reason").setRequired(false))
     .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
 
   new SlashCommandBuilder()
     .setName("unmute")
     .setDescription("Remove a timeout")
-    .addUserOption(o =>
-      o.setName("user").setDescription("Member").setRequired(true)
-    )
-    .addStringOption(o =>
-      o
-        .setName("reason")
-        .setDescription("Reason")
-        .setRequired(false)
-    )
+    .addUserOption(o => o.setName("user").setDescription("Member").setRequired(true))
+    .addStringOption(o => o.setName("reason").setDescription("Reason").setRequired(false))
     .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
 
   new SlashCommandBuilder()
     .setName("warn")
     .setDescription("Warn a member")
-    .addUserOption(o =>
-      o.setName("user").setDescription("Member").setRequired(true)
-    )
-    .addStringOption(o =>
-      o
-        .setName("reason")
-        .setDescription("Reason")
-        .setRequired(true)
-    )
+    .addUserOption(o => o.setName("user").setDescription("Member").setRequired(true))
+    .addStringOption(o => o.setName("reason").setDescription("Reason").setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
   new SlashCommandBuilder()
     .setName("unwarn")
     .setDescription("Remove a warning")
-    .addUserOption(o =>
-      o.setName("user").setDescription("Member").setRequired(true)
-    )
+    .addUserOption(o => o.setName("user").setDescription("Member").setRequired(true))
     .addIntegerOption(o =>
-      o
-        .setName("number")
-        .setDescription("Warning number")
-        .setRequired(true)
-        .setMinValue(1)
+      o.setName("number").setDescription("Warning number").setRequired(true).setMinValue(1)
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
   new SlashCommandBuilder()
     .setName("warnings")
     .setDescription("View a member's warnings")
-    .addUserOption(o =>
-      o.setName("user").setDescription("Member").setRequired(true)
-    )
+    .addUserOption(o => o.setName("user").setDescription("Member").setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
   new SlashCommandBuilder()
     .setName("clear")
     .setDescription("Delete messages")
     .addIntegerOption(o =>
-      o
-        .setName("amount")
-        .setDescription("Amount")
-        .setRequired(true)
-        .setMinValue(1)
-        .setMaxValue(100)
+      o.setName("amount").setDescription("Amount").setRequired(true).setMinValue(1).setMaxValue(100)
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
   new SlashCommandBuilder()
     .setName("purge")
     .setDescription("Delete messages from a specific member")
-    .addUserOption(o =>
-      o.setName("user").setDescription("Member").setRequired(true)
-    )
+    .addUserOption(o => o.setName("user").setDescription("Member").setRequired(true))
     .addIntegerOption(o =>
-      o
-        .setName("amount")
-        .setDescription("Amount")
-        .setRequired(true)
-        .setMinValue(1)
-        .setMaxValue(100)
+      o.setName("amount").setDescription("Amount").setRequired(true).setMinValue(1).setMaxValue(100)
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
@@ -1122,12 +1038,7 @@ const commands = [
     .setName("clean")
     .setDescription("Delete bot messages")
     .addIntegerOption(o =>
-      o
-        .setName("amount")
-        .setDescription("Amount")
-        .setRequired(true)
-        .setMinValue(1)
-        .setMaxValue(100)
+      o.setName("amount").setDescription("Amount").setRequired(true).setMinValue(1).setMaxValue(100)
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
@@ -1145,51 +1056,34 @@ const commands = [
     .setName("slowmode")
     .setDescription("Set channel slowmode")
     .addIntegerOption(o =>
-      o
-        .setName("seconds")
-        .setDescription("Seconds")
-        .setRequired(true)
-        .setMinValue(0)
-        .setMaxValue(21600)
+      o.setName("seconds").setDescription("Seconds").setRequired(true).setMinValue(0).setMaxValue(21600)
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
 
   new SlashCommandBuilder()
     .setName("say")
     .setDescription("Make the bot say something")
-    .addStringOption(o =>
-      o.setName("message").setDescription("Message").setRequired(true)
-    )
+    .addStringOption(o => o.setName("message").setDescription("Message").setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
   new SlashCommandBuilder()
     .setName("dm")
     .setDescription("DM a member")
-    .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("message").setDescription("Message").setRequired(true)
-    )
+    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
+    .addStringOption(o => o.setName("message").setDescription("Message").setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
   new SlashCommandBuilder()
     .setName("userinfo")
     .setDescription("Show member information")
-    .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(false)
-    ),
+    .addUserOption(o => o.setName("user").setDescription("User").setRequired(false)),
 
-  new SlashCommandBuilder()
-    .setName("serverinfo")
-    .setDescription("Show server information"),
+  new SlashCommandBuilder().setName("serverinfo").setDescription("Show server information"),
 
   new SlashCommandBuilder()
     .setName("avatar")
     .setDescription("Show a user's avatar")
-    .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(false)
-    ),
+    .addUserOption(o => o.setName("user").setDescription("User").setRequired(false)),
 
   new SlashCommandBuilder()
     .setName("ticketpanel")
@@ -1197,44 +1091,20 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
 
   new SlashCommandBuilder()
-    .setName("br")
-    .setDescription("Create your booster custom role")
-    .addStringOption(o =>
-      o
-        .setName("name")
-        .setDescription("Role name")
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o
-        .setName("color")
-        .setDescription("Hex color, example FF0000")
-        .setRequired(false)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("brremove")
-    .setDescription("Remove your booster custom role"),
-
-  new SlashCommandBuilder()
     .setName("giveaway")
     .setDescription("Start a giveaway")
-    .addIntegerOption(o =>
+    .addStringOption(o =>
       o
         .setName("duration")
-        .setDescription("Duration in minutes")
+        .setDescription("Duration, e.g. 30s, 10m, 2h, 3d")
         .setRequired(true)
-        .setMinValue(1)
     )
     .addIntegerOption(o =>
-      o
-        .setName("winners")
-        .setDescription("Number of winners")
-        .setRequired(true)
-        .setMinValue(1)
+      o.setName("winners").setDescription("Number of winners").setRequired(true).setMinValue(1)
     )
-    .addStringOption(o =>
-      o.setName("prize").setDescription("Prize").setRequired(true)
+    .addStringOption(o => o.setName("prize").setDescription("Prize").setRequired(true))
+    .addAttachmentOption(o =>
+      o.setName("image").setDescription("Optional image for the giveaway").setRequired(false)
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
@@ -1242,10 +1112,7 @@ const commands = [
     .setName("reroll")
     .setDescription("Reroll a giveaway")
     .addStringOption(o =>
-      o
-        .setName("messageid")
-        .setDescription("Giveaway message ID")
-        .setRequired(true)
+      o.setName("messageid").setDescription("Giveaway message ID").setRequired(true)
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
 ].map(command => command.toJSON());
@@ -1261,27 +1128,11 @@ async function registerCommands() {
     console.log("Registering slash commands...");
 
     if (GUILD_ID) {
-      await rest.put(
-        Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-        {
-          body: commands
-        }
-      );
-
-      console.log(
-        `Registered ${commands.length} guild slash commands.`
-      );
+      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+      console.log(`Registered ${commands.length} guild slash commands.`);
     } else {
-      await rest.put(
-        Routes.applicationCommands(CLIENT_ID),
-        {
-          body: commands
-        }
-      );
-
-      console.log(
-        `Registered ${commands.length} global slash commands.`
-      );
+      await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+      console.log(`Registered ${commands.length} global slash commands.`);
     }
   } catch (error) {
     console.error("Slash command registration failed:", error);
@@ -1299,12 +1150,7 @@ client.once("ready", async () => {
   console.log(`Transcript channel: ${TRANSCRIPT_CHANNEL_ID}`);
 
   client.user.setPresence({
-    activities: [
-      {
-        name: "Kenk Community",
-        type: 3
-      }
-    ],
+    activities: [{ name: "Kenk Community", type: 3 }],
     status: "online"
   });
 
@@ -1318,17 +1164,32 @@ client.once("ready", async () => {
 client.on("interactionCreate", async interaction => {
   try {
     /* -------------------------
-       TICKET SELECT
+       TICKET SELECT -> SHOW MODAL FIRST
     ------------------------- */
 
-    if (
-      interaction.isStringSelectMenu() &&
-      interaction.customId === "ticket_category"
-    ) {
-      return openTicket(
-        interaction,
-        interaction.values[0]
+    if (interaction.isStringSelectMenu() && interaction.customId === "ticket_category") {
+      const type = interaction.values[0];
+      const ticket = ticketTypes[type];
+
+      if (!ticket) {
+        return safeReply(interaction, {
+          embeds: [errorEmbed("Invalid ticket category.")],
+          ephemeral: true
+        });
+      }
+
+      const existing = Object.values(data.tickets).find(
+        t => t.guildId === interaction.guild.id && t.userId === interaction.user.id && t.closed !== true
       );
+
+      if (existing) {
+        return safeReply(interaction, {
+          embeds: [errorEmbed(`You already have an open ticket: <#${existing.channelId}>`)],
+          ephemeral: true
+        });
+      }
+
+      return interaction.showModal(buildTicketModal(type));
     }
 
     /* -------------------------
@@ -1346,16 +1207,39 @@ client.on("interactionCreate", async interaction => {
     }
 
     /* -------------------------
+       TICKET QUESTION MODAL SUBMIT -> CREATES THE CHANNEL
+    ------------------------- */
+
+    if (interaction.isModalSubmit() && interaction.customId.startsWith("ticket_modal_")) {
+      const type = interaction.customId.replace("ticket_modal_", "");
+      const ticket = ticketTypes[type];
+
+      if (!ticket) {
+        return safeReply(interaction, {
+          embeds: [errorEmbed("Invalid ticket category.")],
+          ephemeral: true
+        });
+      }
+
+      const answers = {};
+
+      for (const field of ticket.fields) {
+        try {
+          answers[field.id] = interaction.fields.getTextInputValue(field.id);
+        } catch {
+          answers[field.id] = "None provided";
+        }
+      }
+
+      return openTicket(interaction, type, answers);
+    }
+
+    /* -------------------------
        CLOSE MODAL
     ------------------------- */
 
-    if (
-      interaction.isModalSubmit() &&
-      interaction.customId === "ticket_close_modal"
-    ) {
-      const reason =
-        interaction.fields.getTextInputValue("close_reason");
-
+    if (interaction.isModalSubmit() && interaction.customId === "ticket_close_modal") {
+      const reason = interaction.fields.getTextInputValue("close_reason");
       return closeTicket(interaction, reason);
     }
 
@@ -1384,14 +1268,13 @@ client.on("interactionCreate", async interaction => {
           "`/ticketpanel`\n\n" +
           "**Server**\n" +
           "`/say` `/dm` `/userinfo` `/serverinfo` `/avatar`\n\n" +
-          "**Booster**\n" +
-          "`/br` `/brremove`\n\n" +
+          "**Booster (prefix only)**\n" +
+          `\`${getPrefix(interaction.guild.id)}br <name>\` \`${getPrefix(interaction.guild.id)}br color <hex>\`\n` +
+          `\`${getPrefix(interaction.guild.id)}br icon <emoji>\` \`${getPrefix(interaction.guild.id)}br delete\`\n\n` +
           "**Giveaways**\n" +
-          "`/giveaway` `/reroll`"
+          "`/giveaway duration:30s|10m|2h|3d` `/reroll`"
         )
-        .setFooter({
-          text: "Kenk Community"
-        });
+        .setFooter({ text: "Kenk Community" });
 
       return interaction.reply({ embeds: [embed] });
     }
@@ -1400,46 +1283,29 @@ client.on("interactionCreate", async interaction => {
 
     if (commandName === "ping") {
       return interaction.reply({
-        embeds: [
-          successEmbed(
-            "Pong",
-            `Latency: \`${client.ws.ping}ms\``
-          )
-        ]
+        embeds: [successEmbed("Pong", `Latency: \`${client.ws.ping}ms\``)]
       });
     }
 
     /* PREFIX */
 
     if (commandName === "setupprefix") {
-      const prefix =
-        interaction.options.getString("prefix", true);
+      const prefix = interaction.options.getString("prefix", true);
 
       data.prefixes[interaction.guild.id] = prefix;
       saveData();
 
       return interaction.reply({
-        embeds: [
-          successEmbed(
-            "Prefix Updated",
-            `The server prefix is now \`${prefix}\``
-          )
-        ]
+        embeds: [successEmbed("Prefix Updated", `The server prefix is now \`${prefix}\``)]
       });
     }
 
     /* BAN */
 
     if (commandName === "ban") {
-      const user =
-        interaction.options.getUser("user", true);
-
-      const reason =
-        interaction.options.getString("reason") ||
-        "No reason provided";
-
-      const member =
-        await getTargetMember(interaction.guild, user);
+      const user = interaction.options.getUser("user", true);
+      const reason = interaction.options.getString("reason") || "No reason provided";
+      const member = await getTargetMember(interaction.guild, user);
 
       if (!member) {
         return interaction.reply({
@@ -1448,16 +1314,9 @@ client.on("interactionCreate", async interaction => {
         });
       }
 
-      if (
-        member.id === interaction.user.id ||
-        !member.bannable
-      ) {
+      if (member.id === interaction.user.id || !member.bannable) {
         return interaction.reply({
-          embeds: [
-            errorEmbed(
-              "I cannot ban that member. Check my role position and permissions."
-            )
-          ],
+          embeds: [errorEmbed("I cannot ban that member. Check my role position and permissions.")],
           ephemeral: true
         });
       }
@@ -1480,17 +1339,10 @@ client.on("interactionCreate", async interaction => {
     /* UNBAN */
 
     if (commandName === "unban") {
-      const userId =
-        interaction.options.getString("userid", true);
+      const userId = interaction.options.getString("userid", true);
+      const reason = interaction.options.getString("reason") || "No reason provided";
 
-      const reason =
-        interaction.options.getString("reason") ||
-        "No reason provided";
-
-      await interaction.guild.members.unban(
-        userId,
-        reason
-      );
+      await interaction.guild.members.unban(userId, reason);
 
       return interaction.reply({
         embeds: [
@@ -1498,14 +1350,10 @@ client.on("interactionCreate", async interaction => {
             .setColor(COLORS.green)
             .setTitle("Member Unbanned")
             .setDescription(
-              `**User ID:** \`${userId}\`\n` +
-              `**Moderator:** ${interaction.user}\n` +
-              `**Reason:** ${reason}`
+              `**User ID:** \`${userId}\`\n**Moderator:** ${interaction.user}\n**Reason:** ${reason}`
             )
             .setTimestamp()
-            .setFooter({
-              text: "Kenk Community • Moderation"
-            })
+            .setFooter({ text: "Kenk Community • Moderation" })
         ]
       });
     }
@@ -1513,15 +1361,9 @@ client.on("interactionCreate", async interaction => {
     /* KICK */
 
     if (commandName === "kick") {
-      const user =
-        interaction.options.getUser("user", true);
-
-      const reason =
-        interaction.options.getString("reason") ||
-        "No reason provided";
-
-      const member =
-        await getTargetMember(interaction.guild, user);
+      const user = interaction.options.getUser("user", true);
+      const reason = interaction.options.getString("reason") || "No reason provided";
+      const member = await getTargetMember(interaction.guild, user);
 
       if (!member || !member.kickable) {
         return interaction.reply({
@@ -1548,18 +1390,10 @@ client.on("interactionCreate", async interaction => {
     /* MUTE */
 
     if (commandName === "mute") {
-      const user =
-        interaction.options.getUser("user", true);
-
-      const minutes =
-        interaction.options.getInteger("minutes", true);
-
-      const reason =
-        interaction.options.getString("reason") ||
-        "No reason provided";
-
-      const member =
-        await getTargetMember(interaction.guild, user);
+      const user = interaction.options.getUser("user", true);
+      const minutes = interaction.options.getInteger("minutes", true);
+      const reason = interaction.options.getString("reason") || "No reason provided";
+      const member = await getTargetMember(interaction.guild, user);
 
       if (!member || !member.moderatable) {
         return interaction.reply({
@@ -1568,10 +1402,7 @@ client.on("interactionCreate", async interaction => {
         });
       }
 
-      await member.timeout(
-        minutes * 60 * 1000,
-        reason
-      );
+      await member.timeout(minutes * 60 * 1000, reason);
 
       return interaction.reply({
         embeds: [
@@ -1590,15 +1421,9 @@ client.on("interactionCreate", async interaction => {
     /* UNMUTE */
 
     if (commandName === "unmute") {
-      const user =
-        interaction.options.getUser("user", true);
-
-      const reason =
-        interaction.options.getString("reason") ||
-        "No reason provided";
-
-      const member =
-        await getTargetMember(interaction.guild, user);
+      const user = interaction.options.getUser("user", true);
+      const reason = interaction.options.getString("reason") || "No reason provided";
+      const member = await getTargetMember(interaction.guild, user);
 
       if (!member || !member.moderatable) {
         return interaction.reply({
@@ -1626,23 +1451,11 @@ client.on("interactionCreate", async interaction => {
     /* WARN */
 
     if (commandName === "warn") {
-      const user =
-        interaction.options.getUser("user", true);
+      const user = interaction.options.getUser("user", true);
+      const reason = interaction.options.getString("reason", true);
+      const warnings = getWarnings(interaction.guild.id, user.id);
 
-      const reason =
-        interaction.options.getString("reason", true);
-
-      const warnings = getWarnings(
-        interaction.guild.id,
-        user.id
-      );
-
-      warnings.push({
-        reason,
-        moderator: interaction.user.id,
-        timestamp: Date.now()
-      });
-
+      warnings.push({ reason, moderator: interaction.user.id, timestamp: Date.now() });
       saveData();
 
       return interaction.reply({
@@ -1650,19 +1463,11 @@ client.on("interactionCreate", async interaction => {
           moderationEmbed({
             title: "Member Warned",
             action: "A warning has been added to this member.",
-            member: {
-              id: user.id
-            },
+            member: { id: user.id },
             moderator: interaction.member,
             reason,
             color: COLORS.yellow,
-            extraFields: [
-              {
-                name: "Total Warnings",
-                value: String(warnings.length),
-                inline: true
-              }
-            ]
+            extraFields: [{ name: "Total Warnings", value: String(warnings.length), inline: true }]
           })
         ]
       });
@@ -1671,30 +1476,18 @@ client.on("interactionCreate", async interaction => {
     /* UNWARN */
 
     if (commandName === "unwarn") {
-      const user =
-        interaction.options.getUser("user", true);
-
-      const number =
-        interaction.options.getInteger("number", true);
-
-      const warnings = getWarnings(
-        interaction.guild.id,
-        user.id
-      );
+      const user = interaction.options.getUser("user", true);
+      const number = interaction.options.getInteger("number", true);
+      const warnings = getWarnings(interaction.guild.id, user.id);
 
       if (number > warnings.length) {
         return interaction.reply({
-          embeds: [
-            errorEmbed(
-              `That user only has ${warnings.length} warning(s).`
-            )
-          ],
+          embeds: [errorEmbed(`That user only has ${warnings.length} warning(s).`)],
           ephemeral: true
         });
       }
 
       const removed = warnings.splice(number - 1, 1)[0];
-
       saveData();
 
       return interaction.reply({
@@ -1703,15 +1496,11 @@ client.on("interactionCreate", async interaction => {
             .setColor(COLORS.green)
             .setTitle("Warning Removed")
             .setDescription(
-              `**User:** <@${user.id}>\n` +
-              `**Removed warning:** #${number}\n` +
-              `**Original reason:** ${removed.reason}\n` +
-              `**Moderator:** ${interaction.user}`
+              `**User:** <@${user.id}>\n**Removed warning:** #${number}\n` +
+              `**Original reason:** ${removed.reason}\n**Moderator:** ${interaction.user}`
             )
             .setTimestamp()
-            .setFooter({
-              text: "Kenk Community • Moderation"
-            })
+            .setFooter({ text: "Kenk Community • Moderation" })
         ]
       });
     }
@@ -1719,56 +1508,30 @@ client.on("interactionCreate", async interaction => {
     /* WARNINGS */
 
     if (commandName === "warnings") {
-      const user =
-        interaction.options.getUser("user", true);
-
-      const warnings = getWarnings(
-        interaction.guild.id,
-        user.id
-      );
+      const user = interaction.options.getUser("user", true);
+      const warnings = getWarnings(interaction.guild.id, user.id);
 
       const embed = new EmbedBuilder()
         .setColor(COLORS.yellow)
         .setTitle(`Warnings • ${user.tag}`)
         .setDescription(
           warnings.length
-            ? warnings
-                .map(
-                  (w, i) =>
-                    `**#${i + 1}** — ${w.reason}\n` +
-                    `Moderator: <@${w.moderator}>`
-                )
-                .join("\n\n")
+            ? warnings.map((w, i) => `**#${i + 1}** — ${w.reason}\nModerator: <@${w.moderator}>`).join("\n\n")
             : "This member has no warnings."
         )
-        .setFooter({
-          text: `Total warnings: ${warnings.length}`
-        });
+        .setFooter({ text: `Total warnings: ${warnings.length}` });
 
-      return interaction.reply({
-        embeds: [embed]
-      });
+      return interaction.reply({ embeds: [embed] });
     }
 
     /* CLEAR */
 
     if (commandName === "clear") {
-      const amount =
-        interaction.options.getInteger("amount", true);
-
-      const deleted =
-        await interaction.channel.bulkDelete(
-          amount,
-          true
-        );
+      const amount = interaction.options.getInteger("amount", true);
+      const deleted = await interaction.channel.bulkDelete(amount, true);
 
       return interaction.reply({
-        embeds: [
-          successEmbed(
-            "Messages Cleared",
-            `Deleted **${deleted.size}** message(s).`
-          )
-        ],
+        embeds: [successEmbed("Messages Cleared", `Deleted **${deleted.size}** message(s).`)],
         ephemeral: true
       });
     }
@@ -1776,20 +1539,10 @@ client.on("interactionCreate", async interaction => {
     /* PURGE */
 
     if (commandName === "purge") {
-      const user =
-        interaction.options.getUser("user", true);
-
-      const amount =
-        interaction.options.getInteger("amount", true);
-
-      const messages =
-        await interaction.channel.messages.fetch({
-          limit: 100
-        });
-
-      const selected = messages
-        .filter(m => m.author.id === user.id)
-        .first(amount);
+      const user = interaction.options.getUser("user", true);
+      const amount = interaction.options.getInteger("amount", true);
+      const messages = await interaction.channel.messages.fetch({ limit: 100 });
+      const selected = messages.filter(m => m.author.id === user.id).first(amount);
 
       if (!selected.length) {
         return interaction.reply({
@@ -1798,10 +1551,7 @@ client.on("interactionCreate", async interaction => {
         });
       }
 
-      await interaction.channel.bulkDelete(
-        selected,
-        true
-      );
+      await interaction.channel.bulkDelete(selected, true);
 
       return interaction.reply({
         embeds: [
@@ -1817,17 +1567,9 @@ client.on("interactionCreate", async interaction => {
     /* CLEAN */
 
     if (commandName === "clean") {
-      const amount =
-        interaction.options.getInteger("amount", true);
-
-      const messages =
-        await interaction.channel.messages.fetch({
-          limit: 100
-        });
-
-      const selected = messages
-        .filter(m => m.author.bot)
-        .first(amount);
+      const amount = interaction.options.getInteger("amount", true);
+      const messages = await interaction.channel.messages.fetch({ limit: 100 });
+      const selected = messages.filter(m => m.author.bot).first(amount);
 
       if (!selected.length) {
         return interaction.reply({
@@ -1836,18 +1578,10 @@ client.on("interactionCreate", async interaction => {
         });
       }
 
-      await interaction.channel.bulkDelete(
-        selected,
-        true
-      );
+      await interaction.channel.bulkDelete(selected, true);
 
       return interaction.reply({
-        embeds: [
-          successEmbed(
-            "Bot Messages Cleaned",
-            `Deleted **${selected.length}** bot message(s).`
-          )
-        ],
+        embeds: [successEmbed("Bot Messages Cleaned", `Deleted **${selected.length}** bot message(s).`)],
         ephemeral: true
       });
     }
@@ -1855,93 +1589,56 @@ client.on("interactionCreate", async interaction => {
     /* LOCK */
 
     if (commandName === "lock") {
-      await interaction.channel.permissionOverwrites.edit(
-        interaction.guild.roles.everyone,
-        {
-          SendMessages: false
-        }
-      );
+      await interaction.channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
+        SendMessages: false
+      });
 
       return interaction.reply({
-        embeds: [
-          successEmbed(
-            "Channel Locked",
-            "Members can no longer send messages here."
-          )
-        ]
+        embeds: [successEmbed("Channel Locked", "Members can no longer send messages here.")]
       });
     }
 
     /* UNLOCK */
 
     if (commandName === "unlock") {
-      await interaction.channel.permissionOverwrites.edit(
-        interaction.guild.roles.everyone,
-        {
-          SendMessages: null
-        }
-      );
+      await interaction.channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
+        SendMessages: null
+      });
 
       return interaction.reply({
-        embeds: [
-          successEmbed(
-            "Channel Unlocked",
-            "Members can send messages here again."
-          )
-        ]
+        embeds: [successEmbed("Channel Unlocked", "Members can send messages here again.")]
       });
     }
 
     /* SLOWMODE */
 
     if (commandName === "slowmode") {
-      const seconds =
-        interaction.options.getInteger("seconds", true);
-
-      await interaction.channel.setRateLimitPerUser(
-        seconds
-      );
+      const seconds = interaction.options.getInteger("seconds", true);
+      await interaction.channel.setRateLimitPerUser(seconds);
 
       return interaction.reply({
-        embeds: [
-          successEmbed(
-            "Slowmode Updated",
-            `Slowmode is now **${seconds}s**.`
-          )
-        ]
+        embeds: [successEmbed("Slowmode Updated", `Slowmode is now **${seconds}s**.`)]
       });
     }
 
     /* SAY */
 
     if (commandName === "say") {
-      const message =
-        interaction.options.getString("message", true);
-
-      await interaction.reply({
-        content: message
-      });
+      const message = interaction.options.getString("message", true);
+      await interaction.reply({ content: message });
     }
 
     /* DM */
 
     if (commandName === "dm") {
-      const user =
-        interaction.options.getUser("user", true);
-
-      const message =
-        interaction.options.getString("message", true);
+      const user = interaction.options.getUser("user", true);
+      const message = interaction.options.getString("message", true);
 
       try {
         await user.send(message);
 
         return interaction.reply({
-          embeds: [
-            successEmbed(
-              "DM Sent",
-              `Message sent to **${user.tag}**.`
-            )
-          ],
+          embeds: [successEmbed("DM Sent", `Message sent to **${user.tag}**.`)],
           ephemeral: true
         });
       } catch {
@@ -1955,46 +1652,22 @@ client.on("interactionCreate", async interaction => {
     /* USERINFO */
 
     if (commandName === "userinfo") {
-      const user =
-        interaction.options.getUser("user") ||
-        interaction.user;
-
-      const member =
-        await getTargetMember(interaction.guild, user);
+      const user = interaction.options.getUser("user") || interaction.user;
+      const member = await getTargetMember(interaction.guild, user);
 
       const embed = new EmbedBuilder()
         .setColor(COLORS.blue)
         .setTitle(`User Information`)
         .setThumbnail(user.displayAvatarURL())
         .addFields(
-          {
-            name: "Username",
-            value: user.tag,
-            inline: true
-          },
-          {
-            name: "ID",
-            value: user.id,
-            inline: true
-          },
-          {
-            name: "Created",
-            value: `<t:${Math.floor(
-              user.createdTimestamp / 1000
-            )}:R>`,
-            inline: true
-          }
+          { name: "Username", value: user.tag, inline: true },
+          { name: "ID", value: user.id, inline: true },
+          { name: "Created", value: `<t:${Math.floor(user.createdTimestamp / 1000)}:R>`, inline: true }
         );
 
       if (member) {
         embed.addFields(
-          {
-            name: "Joined",
-            value: `<t:${Math.floor(
-              member.joinedTimestamp / 1000
-            )}:R>`,
-            inline: true
-          },
+          { name: "Joined", value: `<t:${Math.floor(member.joinedTimestamp / 1000)}:R>`, inline: true },
           {
             name: "Roles",
             value:
@@ -2008,9 +1681,7 @@ client.on("interactionCreate", async interaction => {
         );
       }
 
-      return interaction.reply({
-        embeds: [embed]
-      });
+      return interaction.reply({ embeds: [embed] });
     }
 
     /* SERVERINFO */
@@ -2023,54 +1694,27 @@ client.on("interactionCreate", async interaction => {
         .setTitle(guild.name)
         .setThumbnail(guild.iconURL())
         .addFields(
-          {
-            name: "Members",
-            value: String(guild.memberCount),
-            inline: true
-          },
-          {
-            name: "Channels",
-            value: String(guild.channels.cache.size),
-            inline: true
-          },
-          {
-            name: "Roles",
-            value: String(guild.roles.cache.size),
-            inline: true
-          },
-          {
-            name: "Owner",
-            value: `<@${guild.ownerId}>`,
-            inline: true
-          }
+          { name: "Members", value: String(guild.memberCount), inline: true },
+          { name: "Channels", value: String(guild.channels.cache.size), inline: true },
+          { name: "Roles", value: String(guild.roles.cache.size), inline: true },
+          { name: "Owner", value: `<@${guild.ownerId}>`, inline: true }
         )
         .setTimestamp();
 
-      return interaction.reply({
-        embeds: [embed]
-      });
+      return interaction.reply({ embeds: [embed] });
     }
 
     /* AVATAR */
 
     if (commandName === "avatar") {
-      const user =
-        interaction.options.getUser("user") ||
-        interaction.user;
+      const user = interaction.options.getUser("user") || interaction.user;
 
       const embed = new EmbedBuilder()
         .setColor(COLORS.blue)
         .setTitle(`${user.tag}'s Avatar`)
-        .setImage(
-          user.displayAvatarURL({
-            size: 1024,
-            extension: "png"
-          })
-        );
+        .setImage(user.displayAvatarURL({ size: 1024, extension: "png" }));
 
-      return interaction.reply({
-        embeds: [embed]
-      });
+      return interaction.reply({ embeds: [embed] });
     }
 
     /* TICKET PANEL */
@@ -2082,148 +1726,33 @@ client.on("interactionCreate", async interaction => {
       });
 
       return interaction.reply({
-        embeds: [
-          successEmbed(
-            "Ticket Panel Sent",
-            "The support panel has been posted."
-          )
-        ],
+        embeds: [successEmbed("Ticket Panel Sent", "The support panel has been posted.")],
         ephemeral: true
-      });
-    }
-
-    /* BOOSTER ROLE */
-
-    if (commandName === "br") {
-      if (!interaction.member.premiumSince) {
-        return interaction.reply({
-          embeds: [
-            errorEmbed(
-              "You need to be a server booster to use this."
-            )
-          ],
-          ephemeral: true
-        });
-      }
-
-      const name =
-        interaction.options.getString("name", true);
-
-      const color =
-        interaction.options.getString("color") || "#5865F2";
-
-      const existing =
-        data.boosterRoles[interaction.guild.id]?.[
-          interaction.user.id
-        ];
-
-      if (existing) {
-        const role =
-          interaction.guild.roles.cache.get(existing);
-
-        if (role) {
-          await role.edit({
-            name,
-            color
-          });
-
-          return interaction.reply({
-            embeds: [
-              successEmbed(
-                "Booster Role Updated",
-                `Your role is now ${role}.`
-              )
-            ]
-          });
-        }
-      }
-
-      const role = await interaction.guild.roles.create({
-        name,
-        color,
-        reason: `Booster role for ${interaction.user.tag}`
-      });
-
-      await role.setPosition(
-        Math.max(1, interaction.guild.members.me.roles.highest.position - 1)
-      );
-
-      await interaction.member.roles.add(role);
-
-      if (!data.boosterRoles[interaction.guild.id]) {
-        data.boosterRoles[interaction.guild.id] = {};
-      }
-
-      data.boosterRoles[interaction.guild.id][
-        interaction.user.id
-      ] = role.id;
-
-      saveData();
-
-      return interaction.reply({
-        embeds: [
-          successEmbed(
-            "Booster Role Created",
-            `Your custom role ${role} has been created and assigned to you.`
-          )
-        ]
-      });
-    }
-
-    /* REMOVE BOOSTER ROLE */
-
-    if (commandName === "brremove") {
-      const roleId =
-        data.boosterRoles[interaction.guild.id]?.[
-          interaction.user.id
-        ];
-
-      if (!roleId) {
-        return interaction.reply({
-          embeds: [errorEmbed("You don't have a booster custom role.")],
-          ephemeral: true
-        });
-      }
-
-      const role =
-        interaction.guild.roles.cache.get(roleId);
-
-      if (role) {
-        await role.delete(
-          `Booster role removed by ${interaction.user.tag}`
-        );
-      }
-
-      delete data.boosterRoles[interaction.guild.id][
-        interaction.user.id
-      ];
-
-      saveData();
-
-      return interaction.reply({
-        embeds: [
-          successEmbed(
-            "Booster Role Removed",
-            "Your custom booster role has been removed."
-          )
-        ]
       });
     }
 
     /* GIVEAWAY */
 
     if (commandName === "giveaway") {
-      const duration =
-        interaction.options.getInteger("duration", true);
+      const durationInput = interaction.options.getString("duration", true);
+      const winners = interaction.options.getInteger("winners", true);
+      const prize = interaction.options.getString("prize", true);
+      const image = interaction.options.getAttachment("image");
 
-      const winners =
-        interaction.options.getInteger("winners", true);
+      const durationMs = parseDuration(durationInput);
 
-      const prize =
-        interaction.options.getString("prize", true);
+      if (!durationMs) {
+        return interaction.reply({
+          embeds: [
+            errorEmbed(
+              "Invalid duration. Use a number followed by `s`, `m`, `h`, or `d` — e.g. `30s`, `10m`, `2h`, `3d`."
+            )
+          ],
+          ephemeral: true
+        });
+      }
 
-      const endAt =
-        Date.now() + duration * 60 * 1000;
+      const endAt = Date.now() + durationMs;
 
       const embed = new EmbedBuilder()
         .setColor(COLORS.purple)
@@ -2234,9 +1763,11 @@ client.on("interactionCreate", async interaction => {
           `**Ends:** <t:${Math.floor(endAt / 1000)}:R>\n\n` +
           `Click the button below to enter!`
         )
-        .setFooter({
-          text: "Kenk Community • Giveaway"
-        });
+        .setFooter({ text: "Kenk Community • Giveaway" });
+
+      if (image) {
+        embed.setImage(image.url);
+      }
 
       const button = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -2257,18 +1788,14 @@ client.on("interactionCreate", async interaction => {
         prize,
         winners,
         endAt,
+        imageUrl: image ? image.url : null,
         entries: []
       };
 
       saveData();
 
       return interaction.reply({
-        embeds: [
-          successEmbed(
-            "Giveaway Created",
-            `Giveaway started for **${prize}**.`
-          )
-        ],
+        embeds: [successEmbed("Giveaway Created", `Giveaway started for **${prize}**.`)],
         ephemeral: true
       });
     }
@@ -2276,9 +1803,7 @@ client.on("interactionCreate", async interaction => {
     /* REROLL */
 
     if (commandName === "reroll") {
-      const messageId =
-        interaction.options.getString("messageid", true);
-
+      const messageId = interaction.options.getString("messageid", true);
       const giveaway = data.giveaways[messageId];
 
       if (!giveaway) {
@@ -2295,22 +1820,14 @@ client.on("interactionCreate", async interaction => {
         });
       }
 
-      const winner =
-        giveaway.entries[
-          Math.floor(
-            Math.random() * giveaway.entries.length
-          )
-        ];
+      const winner = giveaway.entries[Math.floor(Math.random() * giveaway.entries.length)];
 
       return interaction.reply({
         embeds: [
           new EmbedBuilder()
             .setColor(COLORS.green)
             .setTitle("🎉 Giveaway Rerolled")
-            .setDescription(
-              `New winner: <@${winner}>\n\n` +
-              `Prize: **${giveaway.prize}**`
-            )
+            .setDescription(`New winner: <@${winner}>\n\nPrize: **${giveaway.prize}**`)
         ]
       });
     }
@@ -2319,11 +1836,7 @@ client.on("interactionCreate", async interaction => {
 
     try {
       await safeReply(interaction, {
-        embeds: [
-          errorEmbed(
-            "Something went wrong while processing that command."
-          )
-        ],
+        embeds: [errorEmbed("Something went wrong while processing that command.")],
         ephemeral: true
       });
     } catch {}
@@ -2336,11 +1849,9 @@ client.on("interactionCreate", async interaction => {
 
 client.on("interactionCreate", async interaction => {
   if (!interaction.isButton()) return;
-
   if (interaction.customId !== "giveaway_enter") return;
 
-  const giveaway =
-    data.giveaways[interaction.message.id];
+  const giveaway = data.giveaways[interaction.message.id];
 
   if (!giveaway) {
     return interaction.reply({
@@ -2358,9 +1869,7 @@ client.on("interactionCreate", async interaction => {
 
   if (giveaway.entries.includes(interaction.user.id)) {
     return interaction.reply({
-      embeds: [
-        errorEmbed("You are already entered in this giveaway.")
-      ],
+      embeds: [errorEmbed("You are already entered in this giveaway.")],
       ephemeral: true
     });
   }
@@ -2369,12 +1878,7 @@ client.on("interactionCreate", async interaction => {
   saveData();
 
   return interaction.reply({
-    embeds: [
-      successEmbed(
-        "Entry Added",
-        "You have entered the giveaway."
-      )
-    ],
+    embeds: [successEmbed("Entry Added", "You have entered the giveaway.")],
     ephemeral: true
   });
 });
@@ -2384,15 +1888,11 @@ client.on("interactionCreate", async interaction => {
 ========================================================= */
 
 setInterval(async () => {
-  for (const [messageId, giveaway] of Object.entries(
-    data.giveaways
-  )) {
+  for (const [messageId, giveaway] of Object.entries(data.giveaways)) {
     if (Date.now() < giveaway.endAt) continue;
 
     try {
-      const channel =
-        await client.channels.fetch(giveaway.channelId);
-
+      const channel = await client.channels.fetch(giveaway.channelId);
       if (!channel?.isTextBased()) continue;
 
       let message;
@@ -2410,51 +1910,36 @@ setInterval(async () => {
               new EmbedBuilder()
                 .setColor(COLORS.red)
                 .setTitle("🎉 Giveaway Ended")
-                .setDescription(
-                  `Prize: **${giveaway.prize}**\n\nNo valid entries were found.`
-                )
+                .setDescription(`Prize: **${giveaway.prize}**\n\nNo valid entries were found.`)
             ]
           });
 
+          saveData();
           continue;
         }
 
-        const shuffled = [...giveaway.entries].sort(
-          () => Math.random() - 0.5
-        );
+        const shuffled = [...giveaway.entries].sort(() => Math.random() - 0.5);
+        const winners = shuffled.slice(0, Math.min(giveaway.winners, shuffled.length));
 
-        const winners = shuffled.slice(
-          0,
-          Math.min(
-            giveaway.winners,
-            shuffled.length
+        const resultEmbed = new EmbedBuilder()
+          .setColor(COLORS.green)
+          .setTitle("🎉 GIVEAWAY ENDED")
+          .setDescription(
+            `**Prize:** ${giveaway.prize}\n\n**Winner(s):** ${winners.map(id => `<@${id}>`).join(", ")}`
           )
-        );
+          .setFooter({ text: "Kenk Community • Giveaway" });
+
+        if (giveaway.imageUrl) {
+          resultEmbed.setImage(giveaway.imageUrl);
+        }
 
         await channel.send({
-          content: winners
-            .map(id => `<@${id}>`)
-            .join(", "),
-          embeds: [
-            new EmbedBuilder()
-              .setColor(COLORS.green)
-              .setTitle("🎉 GIVEAWAY ENDED")
-              .setDescription(
-                `**Prize:** ${giveaway.prize}\n\n` +
-                `**Winner(s):** ${winners
-                  .map(id => `<@${id}>`)
-                  .join(", ")}`
-              )
-              .setFooter({
-                text: "Kenk Community • Giveaway"
-              })
-          ]
+          content: winners.map(id => `<@${id}>`).join(", "),
+          embeds: [resultEmbed]
         });
 
         if (message) {
-          await message.edit({
-            components: []
-          });
+          await message.edit({ components: [] });
         }
 
         saveData();
@@ -2477,42 +1962,173 @@ client.on("messageCreate", async message => {
 
   if (!message.content.startsWith(prefix)) return;
 
-  const args = message.content
-    .slice(prefix.length)
-    .trim()
-    .split(/\s+/);
-
+  const args = message.content.slice(prefix.length).trim().split(/\s+/);
   const command = args.shift()?.toLowerCase();
 
   if (!command) return;
 
-  if (!isStaff(message.member)) return;
-
   try {
-    /* PREFIX BAN */
+    /* -------------------------
+       BOOSTER ROLE — usable by any booster, no staff required
+    ------------------------- */
 
-    if (command === "ban") {
-      const member =
-        message.mentions.members.first();
+    if (command === "br") {
+      if (!message.member.premiumSince) {
+        return message.reply({
+          embeds: [errorEmbed("You need to be a server booster to use this.")]
+        });
+      }
 
-      if (!member) {
+      const sub = args[0]?.toLowerCase();
+      const existingRoleId = data.boosterRoles[message.guild.id]?.[message.author.id];
+      const existingRole = existingRoleId
+        ? message.guild.roles.cache.get(existingRoleId)
+        : null;
+
+      /* ,br delete */
+
+      if (sub === "delete") {
+        if (!existingRole) {
+          return message.reply({
+            embeds: [errorEmbed("You don't have a booster custom role.")]
+          });
+        }
+
+        await existingRole.delete("Booster role removed by owner");
+        delete data.boosterRoles[message.guild.id][message.author.id];
+        saveData();
+
+        return message.reply({
+          embeds: [successEmbed("Booster Role Removed", "Your booster role has been **deleted**.")]
+        });
+      }
+
+      /* ,br color <hex> */
+
+      if (sub === "color") {
+        const hex = args[1];
+
+        if (!hex) {
+          return message.reply({
+            embeds: [errorEmbed(`Usage: \`${prefix}br color <hex>\``)]
+          });
+        }
+
+        if (!existingRole) {
+          return message.reply({
+            embeds: [errorEmbed(`You don't have a booster role yet. Use \`${prefix}br <name>\` first.`)]
+          });
+        }
+
+        try {
+          await existingRole.setColor(hex);
+          return message.reply({ embeds: [successEmbed("Role color updated.", " ")] });
+        } catch {
+          return message.reply({ embeds: [errorEmbed("Invalid hex color.")] });
+        }
+      }
+
+      /* ,br icon <emoji> */
+
+      if (sub === "icon") {
+        const emoji = args[1];
+
+        if (!emoji) {
+          return message.reply({
+            embeds: [errorEmbed(`Usage: \`${prefix}br icon <emoji>\``)]
+          });
+        }
+
+        if (!existingRole) {
+          return message.reply({
+            embeds: [errorEmbed(`You don't have a booster role yet. Use \`${prefix}br <name>\` first.`)]
+          });
+        }
+
+        try {
+          await existingRole.setUnicodeEmoji(emoji);
+          return message.reply({ embeds: [successEmbed("Role Icon Updated", "Your role icon has been updated.")] });
+        } catch {
+          return message.reply({
+            embeds: [
+              errorEmbed(
+                "Couldn't set that icon. Role icons require a higher server boost level, or the emoji isn't valid."
+              )
+            ]
+          });
+        }
+      }
+
+      /* ,br <name> — create or rename */
+
+      const name = args.join(" ");
+
+      if (!name) {
         return message.reply({
           embeds: [
-            errorEmbed(
-              `Usage: \`${prefix}ban @user reason\``
-            )
+            new EmbedBuilder()
+              .setColor(COLORS.yellow)
+              .setTitle("Booster Role Commands")
+              .addFields(
+                { name: `${prefix}br <name>`, value: "\u200b" },
+                { name: `${prefix}br color <hex>`, value: "\u200b" },
+                { name: `${prefix}br icon <emoji>`, value: "\u200b" },
+                { name: `${prefix}br delete`, value: "\u200b" }
+              )
           ]
         });
       }
 
-      const reason =
-        args.slice(1).join(" ") ||
-        "No reason provided";
+      if (existingRole) {
+        await existingRole.setName(name);
+        return message.reply({
+          embeds: [successEmbed("Booster role name set to " + name, " ")]
+        });
+      }
+
+      const role = await message.guild.roles.create({
+        name,
+        color: "#5865F2",
+        reason: `Booster role for ${message.author.tag}`
+      });
+
+      const botHighest = message.guild.members.me.roles.highest.position;
+      await role.setPosition(Math.max(1, botHighest - 1));
+      await message.member.roles.add(role);
+
+      if (!data.boosterRoles[message.guild.id]) {
+        data.boosterRoles[message.guild.id] = {};
+      }
+
+      data.boosterRoles[message.guild.id][message.author.id] = role.id;
+      saveData();
+
+      return message.reply({
+        embeds: [
+          successEmbed("Booster Role Created", `Your custom role ${role} has been created and assigned to you.`)
+        ]
+      });
+    }
+
+    /* -------------------------
+       EVERYTHING BELOW REQUIRES STAFF
+    ------------------------- */
+
+    if (!isStaff(message.member)) return;
+
+    /* PREFIX BAN */
+
+    if (command === "ban") {
+      const member = message.mentions.members.first();
+
+      if (!member) {
+        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}ban @user reason\``)] });
+      }
+
+      const reason = args.slice(1).join(" ") || "No reason provided";
 
       if (!member.bannable) {
-        return message.reply({
-          embeds: [errorEmbed("I cannot ban that member.")]
-        });
+        return message.reply({ embeds: [errorEmbed("I cannot ban that member.")] });
       }
 
       await member.ban({ reason });
@@ -2536,23 +2152,12 @@ client.on("messageCreate", async message => {
       const userId = args[0];
 
       if (!userId) {
-        return message.reply({
-          embeds: [
-            errorEmbed(
-              `Usage: \`${prefix}unban USER_ID reason\``
-            )
-          ]
-        });
+        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}unban USER_ID reason\``)] });
       }
 
-      const reason =
-        args.slice(1).join(" ") ||
-        "No reason provided";
+      const reason = args.slice(1).join(" ") || "No reason provided";
 
-      await message.guild.members.unban(
-        userId,
-        reason
-      );
+      await message.guild.members.unban(userId, reason);
 
       return message.channel.send({
         embeds: [
@@ -2567,27 +2172,16 @@ client.on("messageCreate", async message => {
     /* PREFIX KICK */
 
     if (command === "kick") {
-      const member =
-        message.mentions.members.first();
+      const member = message.mentions.members.first();
 
       if (!member) {
-        return message.reply({
-          embeds: [
-            errorEmbed(
-              `Usage: \`${prefix}kick @user reason\``
-            )
-          ]
-        });
+        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}kick @user reason\``)] });
       }
 
-      const reason =
-        args.slice(1).join(" ") ||
-        "No reason provided";
+      const reason = args.slice(1).join(" ") || "No reason provided";
 
       if (!member.kickable) {
-        return message.reply({
-          embeds: [errorEmbed("I cannot kick that member.")]
-        });
+        return message.reply({ embeds: [errorEmbed("I cannot kick that member.")] });
       }
 
       await member.kick(reason);
@@ -2608,29 +2202,16 @@ client.on("messageCreate", async message => {
     /* PREFIX MUTE */
 
     if (command === "mute") {
-      const member =
-        message.mentions.members.first();
-
+      const member = message.mentions.members.first();
       const minutes = Number(args[1]);
 
       if (!member || !minutes) {
-        return message.reply({
-          embeds: [
-            errorEmbed(
-              `Usage: \`${prefix}mute @user minutes reason\``
-            )
-          ]
-        });
+        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}mute @user minutes reason\``)] });
       }
 
-      const reason =
-        args.slice(2).join(" ") ||
-        "No reason provided";
+      const reason = args.slice(2).join(" ") || "No reason provided";
 
-      await member.timeout(
-        minutes * 60 * 1000,
-        reason
-      );
+      await member.timeout(minutes * 60 * 1000, reason);
 
       return message.channel.send({
         embeds: [
@@ -2649,15 +2230,10 @@ client.on("messageCreate", async message => {
     /* PREFIX UNMUTE */
 
     if (command === "unmute") {
-      const member =
-        message.mentions.members.first();
-
+      const member = message.mentions.members.first();
       if (!member) return;
 
-      await member.timeout(
-        null,
-        "Timeout removed"
-      );
+      await member.timeout(null, "Timeout removed");
 
       return message.channel.send({
         embeds: [
@@ -2676,34 +2252,16 @@ client.on("messageCreate", async message => {
     /* PREFIX WARN */
 
     if (command === "warn") {
-      const member =
-        message.mentions.members.first();
+      const member = message.mentions.members.first();
 
       if (!member) {
-        return message.reply({
-          embeds: [
-            errorEmbed(
-              `Usage: \`${prefix}warn @user reason\``
-            )
-          ]
-        });
+        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}warn @user reason\``)] });
       }
 
-      const reason =
-        args.slice(1).join(" ") ||
-        "No reason provided";
+      const reason = args.slice(1).join(" ") || "No reason provided";
+      const warnings = getWarnings(message.guild.id, member.id);
 
-      const warnings = getWarnings(
-        message.guild.id,
-        member.id
-      );
-
-      warnings.push({
-        reason,
-        moderator: message.author.id,
-        timestamp: Date.now()
-      });
-
+      warnings.push({ reason, moderator: message.author.id, timestamp: Date.now() });
       saveData();
 
       return message.channel.send({
@@ -2715,12 +2273,7 @@ client.on("messageCreate", async message => {
             moderator: message.member,
             reason,
             color: COLORS.yellow,
-            extraFields: [
-              {
-                name: "Total Warnings",
-                value: String(warnings.length)
-              }
-            ]
+            extraFields: [{ name: "Total Warnings", value: String(warnings.length) }]
           })
         ]
       });
@@ -2729,37 +2282,20 @@ client.on("messageCreate", async message => {
     /* PREFIX UNWARN */
 
     if (command === "unwarn") {
-      const member =
-        message.mentions.members.first();
-
+      const member = message.mentions.members.first();
       const number = Number(args[1]);
 
       if (!member || !number) {
-        return message.reply({
-          embeds: [
-            errorEmbed(
-              `Usage: \`${prefix}unwarn @user warning-number\``
-            )
-          ]
-        });
+        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}unwarn @user warning-number\``)] });
       }
 
-      const warnings = getWarnings(
-        message.guild.id,
-        member.id
-      );
+      const warnings = getWarnings(message.guild.id, member.id);
 
       if (!warnings[number - 1]) {
-        return message.reply({
-          embeds: [
-            errorEmbed("That warning does not exist.")
-          ]
-        });
+        return message.reply({ embeds: [errorEmbed("That warning does not exist.")] });
       }
 
-      const removed =
-        warnings.splice(number - 1, 1)[0];
-
+      const removed = warnings.splice(number - 1, 1)[0];
       saveData();
 
       return message.channel.send({
@@ -2775,15 +2311,10 @@ client.on("messageCreate", async message => {
     /* PREFIX WARNINGS */
 
     if (command === "warnings") {
-      const member =
-        message.mentions.members.first();
-
+      const member = message.mentions.members.first();
       if (!member) return;
 
-      const warnings = getWarnings(
-        message.guild.id,
-        member.id
-      );
+      const warnings = getWarnings(message.guild.id, member.id);
 
       return message.channel.send({
         embeds: [
@@ -2792,12 +2323,7 @@ client.on("messageCreate", async message => {
             .setTitle(`Warnings • ${member.user.tag}`)
             .setDescription(
               warnings.length
-                ? warnings
-                    .map(
-                      (w, i) =>
-                        `**#${i + 1}** ${w.reason}\nModerator: <@${w.moderator}>`
-                    )
-                    .join("\n\n")
+                ? warnings.map((w, i) => `**#${i + 1}** ${w.reason}\nModerator: <@${w.moderator}>`).join("\n\n")
                 : "No warnings."
             )
         ]
@@ -2807,53 +2333,27 @@ client.on("messageCreate", async message => {
     /* PREFIX PURGE */
 
     if (command === "purge") {
-      const member =
-        message.mentions.members.first();
-
-      const amount = Number(
-        args[1] || args[0]
-      );
+      const member = message.mentions.members.first();
+      const amount = Number(args[1] || args[0]);
 
       if (!member || !amount) {
-        return message.reply({
-          embeds: [
-            errorEmbed(
-              `Usage: \`${prefix}purge @user amount\``
-            )
-          ]
-        });
+        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}purge @user amount\``)] });
       }
 
-      const messages =
-        await message.channel.messages.fetch({
-          limit: 100
-        });
-
-      const selected = messages
-        .filter(m => m.author.id === member.id)
-        .first(Math.min(amount, 100));
+      const messages = await message.channel.messages.fetch({ limit: 100 });
+      const selected = messages.filter(m => m.author.id === member.id).first(Math.min(amount, 100));
 
       if (!selected.length) {
-        return message.reply({
-          embeds: [errorEmbed("No messages found.")]
-        });
+        return message.reply({ embeds: [errorEmbed("No messages found.")] });
       }
 
-      await message.channel.bulkDelete(
-        selected,
-        true
-      );
+      await message.channel.bulkDelete(selected, true);
 
-      return message.channel.send({
-        embeds: [
-          successEmbed(
-            "Messages Purged",
-            `Deleted **${selected.length}** messages from ${member}.`
-          )
-        ]
-      }).then(m => {
-        setTimeout(() => m.delete().catch(() => {}), 3000);
-      });
+      return message.channel
+        .send({
+          embeds: [successEmbed("Messages Purged", `Deleted **${selected.length}** messages from ${member}.`)]
+        })
+        .then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
     }
 
     /* PREFIX CLEAN */
@@ -2862,103 +2362,49 @@ client.on("messageCreate", async message => {
       const amount = Number(args[0]);
 
       if (!amount) {
-        return message.reply({
-          embeds: [
-            errorEmbed(
-              `Usage: \`${prefix}clean amount\``
-            )
-          ]
-        });
+        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}clean amount\``)] });
       }
 
-      const messages =
-        await message.channel.messages.fetch({
-          limit: 100
-        });
+      const messages = await message.channel.messages.fetch({ limit: 100 });
+      const selected = messages.filter(m => m.author.bot).first(Math.min(amount, 100));
 
-      const selected = messages
-        .filter(m => m.author.bot)
-        .first(Math.min(amount, 100));
+      await message.channel.bulkDelete(selected, true);
 
-      await message.channel.bulkDelete(
-        selected,
-        true
-      );
-
-      return message.channel.send({
-        embeds: [
-          successEmbed(
-            "Bot Messages Cleaned",
-            `Deleted **${selected.length}** bot messages.`
-          )
-        ]
-      }).then(m => {
-        setTimeout(() => m.delete().catch(() => {}), 3000);
-      });
+      return message.channel
+        .send({ embeds: [successEmbed("Bot Messages Cleaned", `Deleted **${selected.length}** bot messages.`)] })
+        .then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
     }
 
     /* PREFIX CLEAR */
 
     if (command === "clear") {
       const amount = Number(args[0]);
-
       if (!amount) return;
 
-      const deleted =
-        await message.channel.bulkDelete(
-          Math.min(amount, 100),
-          true
-        );
+      const deleted = await message.channel.bulkDelete(Math.min(amount, 100), true);
 
-      return message.channel.send({
-        embeds: [
-          successEmbed(
-            "Messages Cleared",
-            `Deleted **${deleted.size}** messages.`
-          )
-        ]
-      }).then(m => {
-        setTimeout(() => m.delete().catch(() => {}), 3000);
-      });
+      return message.channel
+        .send({ embeds: [successEmbed("Messages Cleared", `Deleted **${deleted.size}** messages.`)] })
+        .then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
     }
 
     /* PREFIX LOCK */
 
     if (command === "lock") {
-      await message.channel.permissionOverwrites.edit(
-        message.guild.roles.everyone,
-        {
-          SendMessages: false
-        }
-      );
+      await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: false });
 
       return message.channel.send({
-        embeds: [
-          successEmbed(
-            "Channel Locked",
-            "Members can no longer send messages here."
-          )
-        ]
+        embeds: [successEmbed("Channel Locked", "Members can no longer send messages here.")]
       });
     }
 
     /* PREFIX UNLOCK */
 
     if (command === "unlock") {
-      await message.channel.permissionOverwrites.edit(
-        message.guild.roles.everyone,
-        {
-          SendMessages: null
-        }
-      );
+      await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: null });
 
       return message.channel.send({
-        embeds: [
-          successEmbed(
-            "Channel Unlocked",
-            "Members can send messages here again."
-          )
-        ]
+        embeds: [successEmbed("Channel Unlocked", "Members can send messages here again.")]
       });
     }
 
@@ -2966,20 +2412,12 @@ client.on("messageCreate", async message => {
 
     if (command === "slowmode") {
       const seconds = Number(args[0]);
-
       if (isNaN(seconds)) return;
 
-      await message.channel.setRateLimitPerUser(
-        seconds
-      );
+      await message.channel.setRateLimitPerUser(seconds);
 
       return message.channel.send({
-        embeds: [
-          successEmbed(
-            "Slowmode Updated",
-            `Slowmode is now **${seconds}s**.`
-          )
-        ]
+        embeds: [successEmbed("Slowmode Updated", `Slowmode is now **${seconds}s**.`)]
       });
     }
 
@@ -2987,47 +2425,26 @@ client.on("messageCreate", async message => {
 
     if (command === "say") {
       const text = args.join(" ");
-
       if (!text) return;
 
       await message.delete().catch(() => {});
-
       return message.channel.send(text);
     }
 
     /* PREFIX DM */
 
     if (command === "dm") {
-      const member =
-        message.mentions.members.first();
-
+      const member = message.mentions.members.first();
       if (!member) return;
 
-      const text = args
-        .slice(1)
-        .join(" ");
-
+      const text = args.slice(1).join(" ");
       if (!text) return;
 
       try {
         await member.send(text);
-
-        return message.reply({
-          embeds: [
-            successEmbed(
-              "DM Sent",
-              `Message sent to ${member}.`
-            )
-          ]
-        });
+        return message.reply({ embeds: [successEmbed("DM Sent", `Message sent to ${member}.`)] });
       } catch {
-        return message.reply({
-          embeds: [
-            errorEmbed(
-              "I couldn't DM that member."
-            )
-          ]
-        });
+        return message.reply({ embeds: [errorEmbed("I couldn't DM that member.")] });
       }
     }
 
@@ -3052,30 +2469,17 @@ client.on("messageCreate", async message => {
 
 client.on("guildMemberUpdate", async (oldMember, newMember) => {
   try {
-    if (
-      oldMember.premiumSince &&
-      !newMember.premiumSince
-    ) {
-      const roleId =
-        data.boosterRoles[newMember.guild.id]?.[
-          newMember.id
-        ];
-
+    if (oldMember.premiumSince && !newMember.premiumSince) {
+      const roleId = data.boosterRoles[newMember.guild.id]?.[newMember.id];
       if (!roleId) return;
 
-      const role =
-        newMember.guild.roles.cache.get(roleId);
+      const role = newMember.guild.roles.cache.get(roleId);
 
       if (role) {
-        await role.delete(
-          "Booster stopped boosting"
-        );
+        await role.delete("Booster stopped boosting");
       }
 
-      delete data.boosterRoles[newMember.guild.id][
-        newMember.id
-      ];
-
+      delete data.boosterRoles[newMember.guild.id][newMember.id];
       saveData();
     }
   } catch (error) {
