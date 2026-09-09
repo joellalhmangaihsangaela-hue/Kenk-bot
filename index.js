@@ -7,8 +7,6 @@ const {
   ChannelType,
   EmbedBuilder,
   ActionRowBuilder,
-  StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder,
   ButtonBuilder,
   ButtonStyle,
   ModalBuilder,
@@ -278,7 +276,7 @@ function parseDuration(input) {
 const ticketTypes = {
   general: {
     label: "General Support",
-    emoji: "<a:ticket:1544380950186819654>",
+    emoji: "<:question:1547192502212239420>",
     description: "General questions and server help",
     fields: [
       { id: "issue", label: "What do you need help with?", style: TextInputStyle.Short, required: true },
@@ -288,8 +286,8 @@ const ticketTypes = {
   },
 
   bug: {
-    label: "Script & Bug Report",
-    emoji: "🛠️",
+    label: "Script & Bug Problem",
+    emoji: "<a:lightning:1547192150867841135>",
     description: "Report scripts, bugs or technical problems",
     fields: [
       { id: "scriptName", label: "Script Name", style: TextInputStyle.Short, required: true },
@@ -301,7 +299,7 @@ const ticketTypes = {
 
   booster: {
     label: "Booster Rewards",
-    emoji: "<:SA_diamond:1484666181586518267>",
+    emoji: "<a:Booster:1547190717313585203>",
     description: "Questions about booster rewards",
     fields: [
       { id: "reward", label: "What booster reward is this about?", style: TextInputStyle.Short, required: true },
@@ -312,7 +310,7 @@ const ticketTypes = {
 
   staff: {
     label: "Staff Report",
-    emoji: "<:report:1020320832855228426>",
+    emoji: "<:report_message:1547192679933419641>",
     description: "Report a staff or helper issue",
     fields: [
       { id: "reportedUser", label: "Who are you reporting?", style: TextInputStyle.Short, required: true },
@@ -323,7 +321,7 @@ const ticketTypes = {
 
   giveaway: {
     label: "Giveaway Support",
-    emoji: "<a:GIVEAWAY:1543224209373921382>",
+    emoji: "<a:Gift:1547191331846094998>",
     description: "Host requests, claiming a prize, or giveaway issues",
     fields: [
       { id: "type", label: "Hosting a giveaway or claiming a prize?", style: TextInputStyle.Short, required: true },
@@ -334,7 +332,7 @@ const ticketTypes = {
 
   management: {
     label: "Management Team",
-    emoji: "<a:CROWN:1543133743416352788>",
+    emoji: "<a:Black_Crown:1547191530471690312>",
     description: "Management related support",
     fields: [
       { id: "topic", label: "What would you like to contact management about?", style: TextInputStyle.Short, required: true },
@@ -345,49 +343,64 @@ const ticketTypes = {
 };
 
 /* =========================================================
-   TICKET PANEL
+   TICKET PANEL (BUTTON BASED)
 ========================================================= */
 
 function ticketPanelEmbed() {
   return new EmbedBuilder()
     .setColor(COLORS.red)
-    .setAuthor({
-      name: "Kenk Community Support"
-    })
-    .setTitle("🎟️ Need Assistance?")
+    .setTitle("Kenk Community | Tickets")
     .setDescription(
-      "Select a ticket category below.\n\n" +
-      "You'll be asked a few quick questions first — once you submit them, your ticket channel will be created.\n\n" +
-      "Our support team will assist you as soon as possible."
-    )
-    .addFields(
-      { name: `${ticketTypes.general.emoji} General Support`, value: "General questions and server help", inline: false },
-      { name: "🛠️ Script & Bug Report", value: "Report bugs or script problems", inline: false },
-      { name: `${ticketTypes.booster.emoji} Booster Rewards`, value: "Questions about booster rewards", inline: false },
-      { name: `${ticketTypes.staff.emoji} Staff Report`, value: "Report a staff or helper issue", inline: false },
-      { name: `${ticketTypes.giveaway.emoji} Giveaway Support`, value: "Giveaway questions and problems", inline: false },
-      { name: `${ticketTypes.management.emoji} Management Team`, value: "Contact the management team", inline: false }
+      "Click a button that represents your needs\n" +
+      "Misuse of tickets will result in punishment"
     )
     .setFooter({
       text: "Kenk Community • Support Team"
     });
 }
 
-function ticketPanelRow() {
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId("ticket_category")
-    .setPlaceholder("Select a ticket category")
-    .addOptions(
-      Object.entries(ticketTypes).map(([value, ticket]) =>
-        new StringSelectMenuOptionBuilder()
-          .setLabel(ticket.label)
-          .setDescription(ticket.description)
-          .setValue(value)
-          .setEmoji(parseEmoji(ticket.emoji))
-      )
-    );
+function ticketPanelRows() {
+  const row1 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("ticket_open_general")
+      .setLabel("General Support")
+      .setEmoji(parseEmoji(ticketTypes.general.emoji))
+      .setStyle(ButtonStyle.Secondary),
 
-  return new ActionRowBuilder().addComponents(menu);
+    new ButtonBuilder()
+      .setCustomId("ticket_open_bug")
+      .setLabel("Script & Bug Report")
+      .setEmoji(parseEmoji(ticketTypes.bug.emoji))
+      .setStyle(ButtonStyle.Secondary),
+
+    new ButtonBuilder()
+      .setCustomId("ticket_open_booster")
+      .setLabel("Booster Rewards")
+      .setEmoji(parseEmoji(ticketTypes.booster.emoji))
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("ticket_open_staff")
+      .setLabel("Staff Report")
+      .setEmoji(parseEmoji(ticketTypes.staff.emoji))
+      .setStyle(ButtonStyle.Secondary),
+
+    new ButtonBuilder()
+      .setCustomId("ticket_open_giveaway")
+      .setLabel("Giveaway Support")
+      .setEmoji(parseEmoji(ticketTypes.giveaway.emoji))
+      .setStyle(ButtonStyle.Secondary),
+
+    new ButtonBuilder()
+      .setCustomId("ticket_open_management")
+      .setLabel("Management Team")
+      .setEmoji(parseEmoji(ticketTypes.management.emoji))
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return [row1, row2];
 }
 
 /* =========================================================
@@ -566,9 +579,7 @@ async function openTicket(interaction, type, answers) {
   }
 
   return safeReply(interaction, {
-    embeds: [
-      successEmbed("Ticket Created", `Your ticket has been opened: <#${channel.id}>`)
-    ],
+    content: `✅ Your ticket has been opened: <#${channel.id}>`,
     ephemeral: true
   });
 }
@@ -643,14 +654,14 @@ async function toggleClaim(interaction) {
 
   if (!ticket || ticket.closed) {
     return safeReply(interaction, {
-      embeds: [errorEmbed("This is not an active ticket.")],
+      content: "❌ This is not an active ticket.",
       ephemeral: true
     });
   }
 
   if (!isStaff(interaction.member)) {
     return safeReply(interaction, {
-      embeds: [errorEmbed("Only staff can claim tickets.")],
+      content: "❌ Only staff can claim tickets.",
       ephemeral: true
     });
   }
@@ -687,16 +698,14 @@ async function toggleClaim(interaction) {
     }
 
     return safeReply(interaction, {
-      embeds: [
-        successEmbed("Ticket Unclaimed", "The ticket is available for staff to claim again.")
-      ],
+      content: "✅ The ticket is available for staff to claim again.",
       ephemeral: true
     });
   }
 
   if (ticket.claimedBy && ticket.claimedBy !== interaction.user.id) {
     return safeReply(interaction, {
-      embeds: [errorEmbed(`This ticket is already claimed by <@${ticket.claimedBy}>.`)],
+      content: `❌ This ticket is already claimed by <@${ticket.claimedBy}>.`,
       ephemeral: true
     });
   }
@@ -737,23 +746,10 @@ async function toggleClaim(interaction) {
     await ticketMessage.edit({ embeds: [embed] });
   }
 
-  await channel.send({
-    embeds: [
-      new EmbedBuilder()
-        .setColor(COLORS.orange)
-        .setDescription(`📌 This ticket has been claimed by ${interaction.user}.`)
-        .setFooter({ text: "Other staff members can no longer see this ticket." })
-        .setTimestamp()
-    ]
-  });
+  await channel.send(`📌 This ticket has been claimed by ${interaction.user}. Other staff members can no longer see this ticket.`);
 
   return safeReply(interaction, {
-    embeds: [
-      successEmbed(
-        "Ticket Claimed",
-        "You have claimed this ticket. Other staff members can no longer see it."
-      )
-    ],
+    content: "✅ You have claimed this ticket. Other staff members can no longer see it.",
     ephemeral: true
   });
 }
@@ -786,14 +782,14 @@ async function closeTicket(interaction, reason) {
 
   if (!ticket || ticket.closed) {
     return safeReply(interaction, {
-      embeds: [errorEmbed("This is not an active ticket.")],
+      content: "❌ This is not an active ticket.",
       ephemeral: true
     });
   }
 
   if (!isStaff(interaction.member)) {
     return safeReply(interaction, {
-      embeds: [errorEmbed("Only staff can close tickets.")],
+      content: "❌ Only staff can close tickets.",
       ephemeral: true
     });
   }
@@ -806,13 +802,7 @@ async function closeTicket(interaction, reason) {
   saveData();
 
   await interaction.reply({
-    embeds: [
-      new EmbedBuilder()
-        .setColor(COLORS.red)
-        .setTitle("🔒 Closing Ticket")
-        .setDescription(`This ticket is being closed.\n\n**Reason:** ${reason}`)
-        .setTimestamp()
-    ]
+    content: `🔒 This ticket is being closed.\n**Reason:** ${reason}`
   });
 
   let transcript;
@@ -1077,13 +1067,15 @@ client.once("ready", async () => {
 
 client.on("interactionCreate", async interaction => {
   try {
-    if (interaction.isStringSelectMenu() && interaction.customId === "ticket_category") {
-      const type = interaction.values[0];
+    /* TICKET OPEN BUTTONS */
+
+    if (interaction.isButton() && interaction.customId.startsWith("ticket_open_")) {
+      const type = interaction.customId.replace("ticket_open_", "");
       const ticket = ticketTypes[type];
 
       if (!ticket) {
         return safeReply(interaction, {
-          embeds: [errorEmbed("Invalid ticket category.")],
+          content: "❌ Invalid ticket category.",
           ephemeral: true
         });
       }
@@ -1094,13 +1086,15 @@ client.on("interactionCreate", async interaction => {
 
       if (existing) {
         return safeReply(interaction, {
-          embeds: [errorEmbed(`You already have an open ticket: <#${existing.channelId}>`)],
+          content: `❌ You already have an open ticket: <#${existing.channelId}>`,
           ephemeral: true
         });
       }
 
       return interaction.showModal(buildTicketModal(type));
     }
+
+    /* CLAIM / CLOSE BUTTONS */
 
     if (interaction.isButton()) {
       if (interaction.customId === "ticket_claim") {
@@ -1112,13 +1106,15 @@ client.on("interactionCreate", async interaction => {
       }
     }
 
+    /* TICKET QUESTION MODAL SUBMIT */
+
     if (interaction.isModalSubmit() && interaction.customId.startsWith("ticket_modal_")) {
       const type = interaction.customId.replace("ticket_modal_", "");
       const ticket = ticketTypes[type];
 
       if (!ticket) {
         return safeReply(interaction, {
-          embeds: [errorEmbed("Invalid ticket category.")],
+          content: "❌ Invalid ticket category.",
           ephemeral: true
         });
       }
@@ -1136,6 +1132,8 @@ client.on("interactionCreate", async interaction => {
       return openTicket(interaction, type, answers);
     }
 
+    /* CLOSE MODAL */
+
     if (interaction.isModalSubmit() && interaction.customId === "ticket_close_modal") {
       const reason = interaction.fields.getTextInputValue("close_reason");
       return closeTicket(interaction, reason);
@@ -1144,6 +1142,8 @@ client.on("interactionCreate", async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
     const { commandName } = interaction;
+
+    /* HELP */
 
     if (commandName === "help") {
       const embed = new EmbedBuilder()
@@ -1171,11 +1171,15 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ embeds: [embed] });
     }
 
+    /* PING — plain text */
+
     if (commandName === "ping") {
       return interaction.reply({
-        embeds: [successEmbed("Pong", `Latency: \`${client.ws.ping}ms\``)]
+        content: `🏓 Pong! Latency: \`${client.ws.ping}ms\``
       });
     }
+
+    /* SETUPPREFIX — plain text */
 
     if (commandName === "setupprefix") {
       const prefix = interaction.options.getString("prefix", true);
@@ -1184,9 +1188,11 @@ client.on("interactionCreate", async interaction => {
       saveData();
 
       return interaction.reply({
-        embeds: [successEmbed("Prefix Updated", `The server prefix is now \`${prefix}\``)]
+        content: `✅ The server prefix is now \`${prefix}\``
       });
     }
+
+    /* BAN — embed */
 
     if (commandName === "ban") {
       const user = interaction.options.getUser("user", true);
@@ -1195,14 +1201,14 @@ client.on("interactionCreate", async interaction => {
 
       if (!member) {
         return interaction.reply({
-          embeds: [errorEmbed("That member is not in this server.")],
+          content: "❌ That member is not in this server.",
           ephemeral: true
         });
       }
 
       if (member.id === interaction.user.id || !member.bannable) {
         return interaction.reply({
-          embeds: [errorEmbed("I cannot ban that member. Check my role position and permissions.")],
+          content: "❌ I cannot ban that member. Check my role position and permissions.",
           ephemeral: true
         });
       }
@@ -1221,6 +1227,8 @@ client.on("interactionCreate", async interaction => {
         ]
       });
     }
+
+    /* UNBAN — embed */
 
     if (commandName === "unban") {
       const userId = interaction.options.getString("userid", true);
@@ -1242,6 +1250,8 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
+    /* KICK — embed */
+
     if (commandName === "kick") {
       const user = interaction.options.getUser("user", true);
       const reason = interaction.options.getString("reason") || "No reason provided";
@@ -1249,7 +1259,7 @@ client.on("interactionCreate", async interaction => {
 
       if (!member || !member.kickable) {
         return interaction.reply({
-          embeds: [errorEmbed("I cannot kick that member.")],
+          content: "❌ I cannot kick that member.",
           ephemeral: true
         });
       }
@@ -1269,6 +1279,8 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
+    /* MUTE — embed */
+
     if (commandName === "mute") {
       const user = interaction.options.getUser("user", true);
       const minutes = interaction.options.getInteger("minutes", true);
@@ -1277,7 +1289,7 @@ client.on("interactionCreate", async interaction => {
 
       if (!member || !member.moderatable) {
         return interaction.reply({
-          embeds: [errorEmbed("I cannot mute that member.")],
+          content: "❌ I cannot mute that member.",
           ephemeral: true
         });
       }
@@ -1298,6 +1310,8 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
+    /* UNMUTE — embed */
+
     if (commandName === "unmute") {
       const user = interaction.options.getUser("user", true);
       const reason = interaction.options.getString("reason") || "No reason provided";
@@ -1305,7 +1319,7 @@ client.on("interactionCreate", async interaction => {
 
       if (!member || !member.moderatable) {
         return interaction.reply({
-          embeds: [errorEmbed("I cannot unmute that member.")],
+          content: "❌ I cannot unmute that member.",
           ephemeral: true
         });
       }
@@ -1325,6 +1339,8 @@ client.on("interactionCreate", async interaction => {
         ]
       });
     }
+
+    /* WARN — embed */
 
     if (commandName === "warn") {
       const user = interaction.options.getUser("user", true);
@@ -1349,6 +1365,8 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
+    /* UNWARN — embed */
+
     if (commandName === "unwarn") {
       const user = interaction.options.getUser("user", true);
       const number = interaction.options.getInteger("number", true);
@@ -1356,7 +1374,7 @@ client.on("interactionCreate", async interaction => {
 
       if (number > warnings.length) {
         return interaction.reply({
-          embeds: [errorEmbed(`That user only has ${warnings.length} warning(s).`)],
+          content: `❌ That user only has ${warnings.length} warning(s).`,
           ephemeral: true
         });
       }
@@ -1379,6 +1397,8 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
+    /* WARNINGS — embed */
+
     if (commandName === "warnings") {
       const user = interaction.options.getUser("user", true);
       const warnings = getWarnings(interaction.guild.id, user.id);
@@ -1396,15 +1416,19 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ embeds: [embed] });
     }
 
+    /* CLEAR — plain text */
+
     if (commandName === "clear") {
       const amount = interaction.options.getInteger("amount", true);
       const deleted = await interaction.channel.bulkDelete(amount, true);
 
       return interaction.reply({
-        embeds: [successEmbed("Messages Cleared", `Deleted **${deleted.size}** message(s).`)],
+        content: `✅ Deleted **${deleted.size}** message(s).`,
         ephemeral: true
       });
     }
+
+    /* PURGE — plain text */
 
     if (commandName === "purge") {
       const user = interaction.options.getUser("user", true);
@@ -1414,7 +1438,7 @@ client.on("interactionCreate", async interaction => {
 
       if (!selected.length) {
         return interaction.reply({
-          embeds: [errorEmbed("No messages from that user were found.")],
+          content: "❌ No messages from that user were found.",
           ephemeral: true
         });
       }
@@ -1422,15 +1446,12 @@ client.on("interactionCreate", async interaction => {
       await interaction.channel.bulkDelete(selected, true);
 
       return interaction.reply({
-        embeds: [
-          successEmbed(
-            "User Messages Purged",
-            `Deleted **${selected.length}** message(s) from <@${user.id}>.`
-          )
-        ],
+        content: `✅ Deleted **${selected.length}** message(s) from <@${user.id}>.`,
         ephemeral: true
       });
     }
+
+    /* CLEAN — plain text */
 
     if (commandName === "clean") {
       const amount = interaction.options.getInteger("amount", true);
@@ -1439,7 +1460,7 @@ client.on("interactionCreate", async interaction => {
 
       if (!selected.length) {
         return interaction.reply({
-          embeds: [errorEmbed("No bot messages were found.")],
+          content: "❌ No bot messages were found.",
           ephemeral: true
         });
       }
@@ -1447,10 +1468,12 @@ client.on("interactionCreate", async interaction => {
       await interaction.channel.bulkDelete(selected, true);
 
       return interaction.reply({
-        embeds: [successEmbed("Bot Messages Cleaned", `Deleted **${selected.length}** bot message(s).`)],
+        content: `✅ Deleted **${selected.length}** bot message(s).`,
         ephemeral: true
       });
     }
+
+    /* LOCK — plain text */
 
     if (commandName === "lock") {
       await interaction.channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
@@ -1458,9 +1481,11 @@ client.on("interactionCreate", async interaction => {
       });
 
       return interaction.reply({
-        embeds: [successEmbed("Channel Locked", "Members can no longer send messages here.")]
+        content: "🔒 Members can no longer send messages here."
       });
     }
+
+    /* UNLOCK — plain text */
 
     if (commandName === "unlock") {
       await interaction.channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
@@ -1468,23 +1493,29 @@ client.on("interactionCreate", async interaction => {
       });
 
       return interaction.reply({
-        embeds: [successEmbed("Channel Unlocked", "Members can send messages here again.")]
+        content: "🔓 Members can send messages here again."
       });
     }
+
+    /* SLOWMODE — plain text */
 
     if (commandName === "slowmode") {
       const seconds = interaction.options.getInteger("seconds", true);
       await interaction.channel.setRateLimitPerUser(seconds);
 
       return interaction.reply({
-        embeds: [successEmbed("Slowmode Updated", `Slowmode is now **${seconds}s**.`)]
+        content: `⏱️ Slowmode is now **${seconds}s**.`
       });
     }
+
+    /* SAY — plain text */
 
     if (commandName === "say") {
       const message = interaction.options.getString("message", true);
       await interaction.reply({ content: message });
     }
+
+    /* DM — plain text */
 
     if (commandName === "dm") {
       const user = interaction.options.getUser("user", true);
@@ -1494,16 +1525,18 @@ client.on("interactionCreate", async interaction => {
         await user.send(message);
 
         return interaction.reply({
-          embeds: [successEmbed("DM Sent", `Message sent to **${user.tag}**.`)],
+          content: `✅ Message sent to **${user.tag}**.`,
           ephemeral: true
         });
       } catch {
         return interaction.reply({
-          embeds: [errorEmbed("I couldn't DM that user.")],
+          content: "❌ I couldn't DM that user.",
           ephemeral: true
         });
       }
     }
+
+    /* USERINFO — embed */
 
     if (commandName === "userinfo") {
       const user = interaction.options.getUser("user") || interaction.user;
@@ -1538,6 +1571,8 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ embeds: [embed] });
     }
 
+    /* SERVERINFO — embed */
+
     if (commandName === "serverinfo") {
       const guild = interaction.guild;
 
@@ -1556,6 +1591,8 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ embeds: [embed] });
     }
 
+    /* AVATAR — embed (image display needs it) */
+
     if (commandName === "avatar") {
       const user = interaction.options.getUser("user") || interaction.user;
 
@@ -1567,17 +1604,21 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ embeds: [embed] });
     }
 
+    /* TICKET PANEL — panel embed stays, confirmation is plain text */
+
     if (commandName === "ticketpanel") {
       await interaction.channel.send({
         embeds: [ticketPanelEmbed()],
-        components: [ticketPanelRow()]
+        components: ticketPanelRows()
       });
 
       return interaction.reply({
-        embeds: [successEmbed("Ticket Panel Sent", "The support panel has been posted.")],
+        content: "✅ The support panel has been posted.",
         ephemeral: true
       });
     }
+
+    /* GIVEAWAY — embed (structured data) */
 
     if (commandName === "giveaway") {
       const durationInput = interaction.options.getString("duration", true);
@@ -1589,11 +1630,7 @@ client.on("interactionCreate", async interaction => {
 
       if (!durationMs) {
         return interaction.reply({
-          embeds: [
-            errorEmbed(
-              "Invalid duration. Use a number followed by `s`, `m`, `h`, or `d` — e.g. `30s`, `10m`, `2h`, `3d`."
-            )
-          ],
+          content: "❌ Invalid duration. Use a number followed by `s`, `m`, `h`, or `d` — e.g. `30s`, `10m`, `2h`, `3d`.",
           ephemeral: true
         });
       }
@@ -1641,10 +1678,12 @@ client.on("interactionCreate", async interaction => {
       saveData();
 
       return interaction.reply({
-        embeds: [successEmbed("Giveaway Created", `Giveaway started for **${prize}**.`)],
+        content: `✅ Giveaway started for **${prize}**.`,
         ephemeral: true
       });
     }
+
+    /* REROLL — embed */
 
     if (commandName === "reroll") {
       const messageId = interaction.options.getString("messageid", true);
@@ -1652,14 +1691,14 @@ client.on("interactionCreate", async interaction => {
 
       if (!giveaway) {
         return interaction.reply({
-          embeds: [errorEmbed("Giveaway not found.")],
+          content: "❌ Giveaway not found.",
           ephemeral: true
         });
       }
 
       if (!giveaway.entries.length) {
         return interaction.reply({
-          embeds: [errorEmbed("There are no entries.")],
+          content: "❌ There are no entries.",
           ephemeral: true
         });
       }
@@ -1680,7 +1719,7 @@ client.on("interactionCreate", async interaction => {
 
     try {
       await safeReply(interaction, {
-        embeds: [errorEmbed("Something went wrong while processing that command.")],
+        content: "❌ Something went wrong while processing that command.",
         ephemeral: true
       });
     } catch {}
@@ -1699,21 +1738,21 @@ client.on("interactionCreate", async interaction => {
 
   if (!giveaway) {
     return interaction.reply({
-      embeds: [errorEmbed("This giveaway no longer exists.")],
+      content: "❌ This giveaway no longer exists.",
       ephemeral: true
     });
   }
 
   if (Date.now() >= giveaway.endAt) {
     return interaction.reply({
-      embeds: [errorEmbed("This giveaway has already ended.")],
+      content: "❌ This giveaway has already ended.",
       ephemeral: true
     });
   }
 
   if (giveaway.entries.includes(interaction.user.id)) {
     return interaction.reply({
-      embeds: [errorEmbed("You are already entered in this giveaway.")],
+      content: "❌ You are already entered in this giveaway.",
       ephemeral: true
     });
   }
@@ -1722,7 +1761,7 @@ client.on("interactionCreate", async interaction => {
   saveData();
 
   return interaction.reply({
-    embeds: [successEmbed("Entry Added", "You have entered the giveaway.")],
+    content: "✅ You have entered the giveaway.",
     ephemeral: true
   });
 });
@@ -1812,6 +1851,8 @@ client.on("messageCreate", async message => {
   if (!command) return;
 
   try {
+    /* BOOSTER ROLE */
+
     if (command === "br") {
       let freshMember;
 
@@ -1821,27 +1862,19 @@ client.on("messageCreate", async message => {
           force: true
         });
       } catch {
-        return message.reply({
-          embeds: [errorEmbed("I couldn't verify your member data. Try again in a moment.")]
-        });
+        return message.reply("❌ I couldn't verify your member data. Try again in a moment.");
       }
 
       if (!freshMember.premiumSince) {
-        return message.reply({
-          embeds: [errorEmbed("You need to be a server booster to use this.")]
-        });
+        return message.reply("❌ You need to be a server booster to use this.");
       }
 
       const botMember = message.guild.members.me;
 
       if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) {
-        return message.reply({
-          embeds: [
-            errorEmbed(
-              "I'm missing the **Manage Roles** permission, so I can't create or edit booster roles. Ask an admin to grant it."
-            )
-          ]
-        });
+        return message.reply(
+          "❌ I'm missing the **Manage Roles** permission, so I can't create or edit booster roles. Ask an admin to grant it."
+        );
       }
 
       const sub = args[0]?.toLowerCase();
@@ -1850,80 +1883,70 @@ client.on("messageCreate", async message => {
         ? message.guild.roles.cache.get(existingRoleId)
         : null;
 
+      /* ,br delete */
+
       if (sub === "delete") {
         if (!existingRole) {
-          return message.reply({
-            embeds: [errorEmbed("You don't have a booster custom role.")]
-          });
+          return message.reply("❌ You don't have a booster custom role.");
         }
 
         try {
           await existingRole.delete("Booster role removed by owner");
         } catch {
-          return message.reply({
-            embeds: [errorEmbed("I couldn't delete that role — it may be positioned above my highest role.")]
-          });
+          return message.reply("❌ I couldn't delete that role — it may be positioned above my highest role.");
         }
 
         delete data.boosterRoles[message.guild.id][message.author.id];
         saveData();
 
-        return message.reply({
-          embeds: [successEmbed("Booster Role Removed", "Your booster role has been **deleted**.")]
-        });
+        return message.reply("✅ Your booster role has been **deleted**.");
       }
+
+      /* ,br color <hex> */
 
       if (sub === "color") {
         const hex = args[1];
 
         if (!hex) {
-          return message.reply({
-            embeds: [errorEmbed(`Usage: \`${prefix}br color <hex>\``)]
-          });
+          return message.reply(`❌ Usage: \`${prefix}br color <hex>\``);
         }
 
         if (!existingRole) {
-          return message.reply({
-            embeds: [errorEmbed(`You don't have a booster role yet. Use \`${prefix}br <name>\` first.`)]
-          });
+          return message.reply(`❌ You don't have a booster role yet. Use \`${prefix}br <name>\` first.`);
         }
 
         try {
           await existingRole.setColor(hex);
-          return message.reply({ embeds: [successEmbed("Role color updated.", " ")] });
+          return message.reply("✅ Role color updated.");
         } catch {
-          return message.reply({ embeds: [errorEmbed("Invalid hex color, or I lack permission to edit that role.")] });
+          return message.reply("❌ Invalid hex color, or I lack permission to edit that role.");
         }
       }
+
+      /* ,br icon <emoji> */
 
       if (sub === "icon") {
         const emoji = args[1];
 
         if (!emoji) {
-          return message.reply({
-            embeds: [errorEmbed(`Usage: \`${prefix}br icon <emoji>\``)]
-          });
+          return message.reply(`❌ Usage: \`${prefix}br icon <emoji>\``);
         }
 
         if (!existingRole) {
-          return message.reply({
-            embeds: [errorEmbed(`You don't have a booster role yet. Use \`${prefix}br <name>\` first.`)]
-          });
+          return message.reply(`❌ You don't have a booster role yet. Use \`${prefix}br <name>\` first.`);
         }
 
         try {
           await existingRole.setUnicodeEmoji(emoji);
-          return message.reply({ embeds: [successEmbed("Role Icon Updated", "Your role icon has been updated.")] });
+          return message.reply("✅ Your role icon has been updated.");
         } catch {
-          return message.reply({
-            embeds: [
-              errorEmbed(
-                "Couldn't set that icon. Role icons require a higher server boost level (Level 2+), or the emoji isn't valid."
-              )
-            ]
-          });
+          return message.reply(
+            "❌ Couldn't set that icon. Role icons require a higher server boost level (Level 2+), or the emoji isn't valid."
+          );
         }
       }
+
+      /* ,br <name> — create or rename */
 
       const name = args.join(" ");
 
@@ -1946,13 +1969,9 @@ client.on("messageCreate", async message => {
       if (existingRole) {
         try {
           await existingRole.setName(name);
-          return message.reply({
-            embeds: [successEmbed("Booster role name set to " + name, " ")]
-          });
+          return message.reply(`✅ Booster role name set to **${name}**`);
         } catch {
-          return message.reply({
-            embeds: [errorEmbed("I couldn't rename your role — it may be positioned above my highest role.")]
-          });
+          return message.reply("❌ I couldn't rename your role — it may be positioned above my highest role.");
         }
       }
 
@@ -1975,13 +1994,9 @@ client.on("messageCreate", async message => {
           await role.delete("Rollback: failed to finish booster role setup").catch(() => {});
         }
 
-        return message.reply({
-          embeds: [
-            errorEmbed(
-              "I couldn't finish creating your booster role. Make sure my role is positioned above where booster roles should sit, and that I have **Manage Roles**."
-            )
-          ]
-        });
+        return message.reply(
+          "❌ I couldn't finish creating your booster role. Make sure my role is positioned above where booster roles should sit, and that I have **Manage Roles**."
+        );
       }
 
       if (!data.boosterRoles[message.guild.id]) {
@@ -1991,26 +2006,26 @@ client.on("messageCreate", async message => {
       data.boosterRoles[message.guild.id][message.author.id] = role.id;
       saveData();
 
-      return message.reply({
-        embeds: [
-          successEmbed("Booster Role Created", `Your custom role ${role} has been created and assigned to you.`)
-        ]
-      });
+      return message.reply(`✅ Your custom role ${role} has been created and assigned to you.`);
     }
 
+    /* EVERYTHING BELOW REQUIRES STAFF */
+
     if (!isStaff(message.member)) return;
+
+    /* BAN — embed */
 
     if (command === "ban") {
       const member = message.mentions.members.first();
 
       if (!member) {
-        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}ban @user reason\``)] });
+        return message.reply(`❌ Usage: \`${prefix}ban @user reason\``);
       }
 
       const reason = args.slice(1).join(" ") || "No reason provided";
 
       if (!member.bannable) {
-        return message.reply({ embeds: [errorEmbed("I cannot ban that member.")] });
+        return message.reply("❌ I cannot ban that member.");
       }
 
       await member.ban({ reason });
@@ -2028,38 +2043,35 @@ client.on("messageCreate", async message => {
       });
     }
 
+    /* UNBAN — embed */
+
     if (command === "unban") {
       const userId = args[0];
 
       if (!userId) {
-        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}unban USER_ID reason\``)] });
+        return message.reply(`❌ Usage: \`${prefix}unban USER_ID reason\``);
       }
 
       const reason = args.slice(1).join(" ") || "No reason provided";
 
       await message.guild.members.unban(userId, reason);
 
-      return message.channel.send({
-        embeds: [
-          successEmbed(
-            "Member Unbanned",
-            `User ID: \`${userId}\` has been unbanned.\n\n**Reason:** ${reason}`
-          )
-        ]
-      });
+      return message.channel.send(`✅ User ID: \`${userId}\` has been unbanned.\n**Reason:** ${reason}`);
     }
+
+    /* KICK — embed */
 
     if (command === "kick") {
       const member = message.mentions.members.first();
 
       if (!member) {
-        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}kick @user reason\``)] });
+        return message.reply(`❌ Usage: \`${prefix}kick @user reason\``);
       }
 
       const reason = args.slice(1).join(" ") || "No reason provided";
 
       if (!member.kickable) {
-        return message.reply({ embeds: [errorEmbed("I cannot kick that member.")] });
+        return message.reply("❌ I cannot kick that member.");
       }
 
       await member.kick(reason);
@@ -2077,12 +2089,14 @@ client.on("messageCreate", async message => {
       });
     }
 
+    /* MUTE — embed */
+
     if (command === "mute") {
       const member = message.mentions.members.first();
       const minutes = Number(args[1]);
 
       if (!member || !minutes) {
-        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}mute @user minutes reason\``)] });
+        return message.reply(`❌ Usage: \`${prefix}mute @user minutes reason\``);
       }
 
       const reason = args.slice(2).join(" ") || "No reason provided";
@@ -2102,6 +2116,8 @@ client.on("messageCreate", async message => {
         ]
       });
     }
+
+    /* UNMUTE — embed */
 
     if (command === "unmute") {
       const member = message.mentions.members.first();
@@ -2123,11 +2139,13 @@ client.on("messageCreate", async message => {
       });
     }
 
+    /* WARN — embed */
+
     if (command === "warn") {
       const member = message.mentions.members.first();
 
       if (!member) {
-        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}warn @user reason\``)] });
+        return message.reply(`❌ Usage: \`${prefix}warn @user reason\``);
       }
 
       const reason = args.slice(1).join(" ") || "No reason provided";
@@ -2151,32 +2169,31 @@ client.on("messageCreate", async message => {
       });
     }
 
+    /* UNWARN — embed */
+
     if (command === "unwarn") {
       const member = message.mentions.members.first();
       const number = Number(args[1]);
 
       if (!member || !number) {
-        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}unwarn @user warning-number\``)] });
+        return message.reply(`❌ Usage: \`${prefix}unwarn @user warning-number\``);
       }
 
       const warnings = getWarnings(message.guild.id, member.id);
 
       if (!warnings[number - 1]) {
-        return message.reply({ embeds: [errorEmbed("That warning does not exist.")] });
+        return message.reply("❌ That warning does not exist.");
       }
 
       const removed = warnings.splice(number - 1, 1)[0];
       saveData();
 
-      return message.channel.send({
-        embeds: [
-          successEmbed(
-            "Warning Removed",
-            `Removed warning **#${number}** from ${member}.\n\n**Reason:** ${removed.reason}`
-          )
-        ]
-      });
+      return message.channel.send(
+        `✅ Removed warning **#${number}** from ${member}.\n**Reason:** ${removed.reason}`
+      );
     }
+
+    /* WARNINGS — embed */
 
     if (command === "warnings") {
       const member = message.mentions.members.first();
@@ -2198,35 +2215,37 @@ client.on("messageCreate", async message => {
       });
     }
 
+    /* PURGE — plain text */
+
     if (command === "purge") {
       const member = message.mentions.members.first();
       const amount = Number(args[1] || args[0]);
 
       if (!member || !amount) {
-        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}purge @user amount\``)] });
+        return message.reply(`❌ Usage: \`${prefix}purge @user amount\``);
       }
 
       const messages = await message.channel.messages.fetch({ limit: 100 });
       const selected = messages.filter(m => m.author.id === member.id).first(Math.min(amount, 100));
 
       if (!selected.length) {
-        return message.reply({ embeds: [errorEmbed("No messages found.")] });
+        return message.reply("❌ No messages found.");
       }
 
       await message.channel.bulkDelete(selected, true);
 
       return message.channel
-        .send({
-          embeds: [successEmbed("Messages Purged", `Deleted **${selected.length}** messages from ${member}.`)]
-        })
+        .send(`✅ Deleted **${selected.length}** messages from ${member}.`)
         .then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
     }
+
+    /* CLEAN — plain text */
 
     if (command === "clean") {
       const amount = Number(args[0]);
 
       if (!amount) {
-        return message.reply({ embeds: [errorEmbed(`Usage: \`${prefix}clean amount\``)] });
+        return message.reply(`❌ Usage: \`${prefix}clean amount\``);
       }
 
       const messages = await message.channel.messages.fetch({ limit: 100 });
@@ -2235,9 +2254,11 @@ client.on("messageCreate", async message => {
       await message.channel.bulkDelete(selected, true);
 
       return message.channel
-        .send({ embeds: [successEmbed("Bot Messages Cleaned", `Deleted **${selected.length}** bot messages.`)] })
+        .send(`✅ Deleted **${selected.length}** bot messages.`)
         .then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
     }
+
+    /* CLEAR — plain text */
 
     if (command === "clear") {
       const amount = Number(args[0]);
@@ -2246,36 +2267,35 @@ client.on("messageCreate", async message => {
       const deleted = await message.channel.bulkDelete(Math.min(amount, 100), true);
 
       return message.channel
-        .send({ embeds: [successEmbed("Messages Cleared", `Deleted **${deleted.size}** messages.`)] })
+        .send(`✅ Deleted **${deleted.size}** messages.`)
         .then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
     }
 
+    /* LOCK — plain text */
+
     if (command === "lock") {
       await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: false });
-
-      return message.channel.send({
-        embeds: [successEmbed("Channel Locked", "Members can no longer send messages here.")]
-      });
+      return message.channel.send("🔒 Members can no longer send messages here.");
     }
+
+    /* UNLOCK — plain text */
 
     if (command === "unlock") {
       await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: null });
-
-      return message.channel.send({
-        embeds: [successEmbed("Channel Unlocked", "Members can send messages here again.")]
-      });
+      return message.channel.send("🔓 Members can send messages here again.");
     }
+
+    /* SLOWMODE — plain text */
 
     if (command === "slowmode") {
       const seconds = Number(args[0]);
       if (isNaN(seconds)) return;
 
       await message.channel.setRateLimitPerUser(seconds);
-
-      return message.channel.send({
-        embeds: [successEmbed("Slowmode Updated", `Slowmode is now **${seconds}s**.`)]
-      });
+      return message.channel.send(`⏱️ Slowmode is now **${seconds}s**.`);
     }
+
+    /* SAY — plain text */
 
     if (command === "say") {
       const text = args.join(" ");
@@ -2284,6 +2304,8 @@ client.on("messageCreate", async message => {
       await message.delete().catch(() => {});
       return message.channel.send(text);
     }
+
+    /* DM — plain text */
 
     if (command === "dm") {
       const member = message.mentions.members.first();
@@ -2294,16 +2316,18 @@ client.on("messageCreate", async message => {
 
       try {
         await member.send(text);
-        return message.reply({ embeds: [successEmbed("DM Sent", `Message sent to ${member}.`)] });
+        return message.reply(`✅ Message sent to ${member}.`);
       } catch {
-        return message.reply({ embeds: [errorEmbed("I couldn't DM that member.")] });
+        return message.reply("❌ I couldn't DM that member.");
       }
     }
+
+    /* TICKET PANEL */
 
     if (command === "ticketpanel") {
       await message.channel.send({
         embeds: [ticketPanelEmbed()],
-        components: [ticketPanelRow()]
+        components: ticketPanelRows()
       });
 
       return message.delete().catch(() => {});
