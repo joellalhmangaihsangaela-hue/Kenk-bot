@@ -7,6 +7,8 @@ const {
   ChannelType,
   EmbedBuilder,
   ActionRowBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   ButtonBuilder,
   ButtonStyle,
   ModalBuilder,
@@ -181,28 +183,6 @@ function moderationEmbed({
   return embed;
 }
 
-function errorEmbed(message) {
-  return new EmbedBuilder()
-    .setColor(COLORS.red)
-    .setTitle("Action Failed")
-    .setDescription(`❌ ${message}`)
-    .setTimestamp()
-    .setFooter({
-      text: "Kenk Community"
-    });
-}
-
-function successEmbed(title, message) {
-  return new EmbedBuilder()
-    .setColor(COLORS.green)
-    .setTitle(title)
-    .setDescription(`✅ ${message}`)
-    .setTimestamp()
-    .setFooter({
-      text: "Kenk Community"
-    });
-}
-
 function isStaff(member) {
   return (
     member.permissions.has(PermissionFlagsBits.Administrator) ||
@@ -343,64 +323,48 @@ const ticketTypes = {
 };
 
 /* =========================================================
-   TICKET PANEL (BUTTON BASED)
+   TICKET PANEL (SELECT MENU WITH CATEGORIES)
 ========================================================= */
 
 function ticketPanelEmbed() {
   return new EmbedBuilder()
     .setColor(COLORS.red)
-    .setTitle("Kenk Community | Tickets")
+    .setAuthor({
+      name: "Kenk Community Support"
+    })
+    .setTitle("🎟️ Need Assistance?")
     .setDescription(
-      "Click a button that represents your needs\n" +
-      "Misuse of tickets will result in punishment"
+      "Select a ticket category below.\n\n" +
+      "You'll be asked a few quick questions first — once you submit them, your ticket channel will be created.\n\n" +
+      "Misuse of tickets will result in punishment."
+    )
+    .addFields(
+      Object.values(ticketTypes).map(t => ({
+        name: `${t.emoji} ${t.label}`,
+        value: t.description,
+        inline: false
+      }))
     )
     .setFooter({
       text: "Kenk Community • Support Team"
     });
 }
 
-function ticketPanelRows() {
-  const row1 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId("ticket_open_general")
-      .setLabel("General Support")
-      .setEmoji(parseEmoji(ticketTypes.general.emoji))
-      .setStyle(ButtonStyle.Secondary),
+function ticketPanelRow() {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId("ticket_category")
+    .setPlaceholder("Select a ticket category")
+    .addOptions(
+      Object.entries(ticketTypes).map(([value, ticket]) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(ticket.label)
+          .setDescription(ticket.description)
+          .setValue(value)
+          .setEmoji(parseEmoji(ticket.emoji))
+      )
+    );
 
-    new ButtonBuilder()
-      .setCustomId("ticket_open_bug")
-      .setLabel("Script & Bug Report")
-      .setEmoji(parseEmoji(ticketTypes.bug.emoji))
-      .setStyle(ButtonStyle.Secondary),
-
-    new ButtonBuilder()
-      .setCustomId("ticket_open_booster")
-      .setLabel("Booster Rewards")
-      .setEmoji(parseEmoji(ticketTypes.booster.emoji))
-      .setStyle(ButtonStyle.Secondary)
-  );
-
-  const row2 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId("ticket_open_staff")
-      .setLabel("Staff Report")
-      .setEmoji(parseEmoji(ticketTypes.staff.emoji))
-      .setStyle(ButtonStyle.Secondary),
-
-    new ButtonBuilder()
-      .setCustomId("ticket_open_giveaway")
-      .setLabel("Giveaway Support")
-      .setEmoji(parseEmoji(ticketTypes.giveaway.emoji))
-      .setStyle(ButtonStyle.Secondary),
-
-    new ButtonBuilder()
-      .setCustomId("ticket_open_management")
-      .setLabel("Management Team")
-      .setEmoji(parseEmoji(ticketTypes.management.emoji))
-      .setStyle(ButtonStyle.Secondary)
-  );
-
-  return [row1, row2];
+  return [new ActionRowBuilder().addComponents(menu)];
 }
 
 /* =========================================================
@@ -443,9 +407,7 @@ async function openTicket(interaction, type, answers) {
 
   if (!category || category.type !== ChannelType.GuildCategory) {
     return safeReply(interaction, {
-      embeds: [
-        errorEmbed(`Ticket category \`${TICKET_CATEGORY_ID}\` could not be found.`)
-      ],
+      content: `❌ Ticket category \`${TICKET_CATEGORY_ID}\` could not be found.`,
       ephemeral: true
     });
   }
@@ -848,6 +810,93 @@ async function closeTicket(interaction, reason) {
 }
 
 /* =========================================================
+   GIVEAWAY LOGIC (shared by timer, /endgiveaway, /reroll)
+========================================================= */
+
+function pickWinners(giveaway) {
+  const uniqueGuaranteed = [...new Set(giveaway.guaranteed || [])].slice(0, giveaway.winners);
+
+  const remainingSlots = giveaway.winners - uniqueGuaranteed.length;
+
+  const pool = giveaway.entries.filter(id => !uniqueGuaranteed.includes(id));
+  const shuffled = [...pool].sort(() => Math.random() - 0.5);
+  const randomWinners = shuffled.slice(0, Math.max(0, remainingSlots));
+
+  return [...uniqueGuaranteed, ...randomWinners];
+}
+
+async function finishGiveaway(messageId, giveaway) {
+  if (giveaway.finished) return;
+
+  giveaway.finished = true;
+
+  let channel;
+  let message;
+
+  try {
+    channel = await client.channels.fetch(giveaway.channelId);
+  } catch {
+    saveData();
+    return;
+  }
+
+  if (!channel?.isTextBased()) {
+    saveData();
+    return;
+  }
+
+  try {
+    message = await channel.messages.fetch(messageId);
+  } catch {}
+
+  const hasAnyoneToWin =
+    giveaway.entries.length > 0 || (giveaway.guaranteed && giveaway.guaranteed.length > 0);
+
+  if (!hasAnyoneToWin) {
+    await channel.send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(COLORS.red)
+          .setTitle("🎉 Giveaway Ended")
+          .setDescription(`Prize: **${giveaway.prize}**\n\nNo valid entries were found.`)
+      ]
+    });
+
+    if (message) {
+      await message.edit({ components: [] }).catch(() => {});
+    }
+
+    saveData();
+    return;
+  }
+
+  const winners = pickWinners(giveaway);
+
+  const resultEmbed = new EmbedBuilder()
+    .setColor(COLORS.green)
+    .setTitle("🎉 GIVEAWAY ENDED")
+    .setDescription(
+      `**Prize:** ${giveaway.prize}\n\n**Winner(s):** ${winners.map(id => `<@${id}>`).join(", ")}`
+    )
+    .setFooter({ text: "Kenk Community • Giveaway" });
+
+  if (giveaway.imageUrl) {
+    resultEmbed.setImage(giveaway.imageUrl);
+  }
+
+  await channel.send({
+    content: winners.map(id => `<@${id}>`).join(", "),
+    embeds: [resultEmbed]
+  });
+
+  if (message) {
+    await message.edit({ components: [] }).catch(() => {});
+  }
+
+  saveData();
+}
+
+/* =========================================================
    SLASH COMMANDS
 ========================================================= */
 
@@ -1010,11 +1059,28 @@ const commands = [
     .addAttachmentOption(o =>
       o.setName("image").setDescription("Optional image for the giveaway").setRequired(false)
     )
+    .addUserOption(o =>
+      o.setName("winner1").setDescription("Secretly guarantee this user wins (optional)").setRequired(false)
+    )
+    .addUserOption(o =>
+      o.setName("winner2").setDescription("Secretly guarantee this user wins (optional)").setRequired(false)
+    )
+    .addUserOption(o =>
+      o.setName("winner3").setDescription("Secretly guarantee this user wins (optional)").setRequired(false)
+    )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   new SlashCommandBuilder()
     .setName("reroll")
     .setDescription("Reroll a giveaway")
+    .addStringOption(o =>
+      o.setName("messageid").setDescription("Giveaway message ID").setRequired(true)
+    )
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+
+  new SlashCommandBuilder()
+    .setName("endgiveaway")
+    .setDescription("End a giveaway early and pick winners now")
     .addStringOption(o =>
       o.setName("messageid").setDescription("Giveaway message ID").setRequired(true)
     )
@@ -1067,10 +1133,10 @@ client.once("ready", async () => {
 
 client.on("interactionCreate", async interaction => {
   try {
-    /* TICKET OPEN BUTTONS */
+    /* TICKET SELECT MENU */
 
-    if (interaction.isButton() && interaction.customId.startsWith("ticket_open_")) {
-      const type = interaction.customId.replace("ticket_open_", "");
+    if (interaction.isStringSelectMenu() && interaction.customId === "ticket_category") {
+      const type = interaction.values[0];
       const ticket = ticketTypes[type];
 
       if (!ticket) {
@@ -1164,14 +1230,14 @@ client.on("interactionCreate", async interaction => {
           `\`${getPrefix(interaction.guild.id)}br <name>\` \`${getPrefix(interaction.guild.id)}br color <hex>\`\n` +
           `\`${getPrefix(interaction.guild.id)}br icon <emoji>\` \`${getPrefix(interaction.guild.id)}br delete\`\n\n` +
           "**Giveaways**\n" +
-          "`/giveaway duration:30s|10m|2h|3d` `/reroll`"
+          "`/giveaway duration:30s|10m|2h|3d` `/reroll` `/endgiveaway`"
         )
         .setFooter({ text: "Kenk Community" });
 
       return interaction.reply({ embeds: [embed] });
     }
 
-    /* PING — plain text */
+    /* PING */
 
     if (commandName === "ping") {
       return interaction.reply({
@@ -1179,7 +1245,7 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* SETUPPREFIX — plain text */
+    /* SETUPPREFIX */
 
     if (commandName === "setupprefix") {
       const prefix = interaction.options.getString("prefix", true);
@@ -1192,7 +1258,7 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* BAN — embed */
+    /* BAN */
 
     if (commandName === "ban") {
       const user = interaction.options.getUser("user", true);
@@ -1228,7 +1294,7 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* UNBAN — embed */
+    /* UNBAN */
 
     if (commandName === "unban") {
       const userId = interaction.options.getString("userid", true);
@@ -1250,7 +1316,7 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* KICK — embed */
+    /* KICK */
 
     if (commandName === "kick") {
       const user = interaction.options.getUser("user", true);
@@ -1279,7 +1345,7 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* MUTE — embed */
+    /* MUTE */
 
     if (commandName === "mute") {
       const user = interaction.options.getUser("user", true);
@@ -1310,7 +1376,7 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* UNMUTE — embed */
+    /* UNMUTE */
 
     if (commandName === "unmute") {
       const user = interaction.options.getUser("user", true);
@@ -1340,7 +1406,7 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* WARN — embed */
+    /* WARN */
 
     if (commandName === "warn") {
       const user = interaction.options.getUser("user", true);
@@ -1365,7 +1431,7 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* UNWARN — embed */
+    /* UNWARN */
 
     if (commandName === "unwarn") {
       const user = interaction.options.getUser("user", true);
@@ -1397,7 +1463,7 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* WARNINGS — embed */
+    /* WARNINGS */
 
     if (commandName === "warnings") {
       const user = interaction.options.getUser("user", true);
@@ -1416,7 +1482,7 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    /* CLEAR — plain text */
+    /* CLEAR */
 
     if (commandName === "clear") {
       const amount = interaction.options.getInteger("amount", true);
@@ -1428,7 +1494,7 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* PURGE — plain text */
+    /* PURGE */
 
     if (commandName === "purge") {
       const user = interaction.options.getUser("user", true);
@@ -1451,7 +1517,7 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* CLEAN — plain text */
+    /* CLEAN */
 
     if (commandName === "clean") {
       const amount = interaction.options.getInteger("amount", true);
@@ -1473,7 +1539,7 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* LOCK — plain text */
+    /* LOCK */
 
     if (commandName === "lock") {
       await interaction.channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
@@ -1485,7 +1551,7 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* UNLOCK — plain text */
+    /* UNLOCK */
 
     if (commandName === "unlock") {
       await interaction.channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
@@ -1497,7 +1563,7 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* SLOWMODE — plain text */
+    /* SLOWMODE */
 
     if (commandName === "slowmode") {
       const seconds = interaction.options.getInteger("seconds", true);
@@ -1508,14 +1574,14 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* SAY — plain text */
+    /* SAY */
 
     if (commandName === "say") {
       const message = interaction.options.getString("message", true);
       await interaction.reply({ content: message });
     }
 
-    /* DM — plain text */
+    /* DM */
 
     if (commandName === "dm") {
       const user = interaction.options.getUser("user", true);
@@ -1536,7 +1602,7 @@ client.on("interactionCreate", async interaction => {
       }
     }
 
-    /* USERINFO — embed */
+    /* USERINFO */
 
     if (commandName === "userinfo") {
       const user = interaction.options.getUser("user") || interaction.user;
@@ -1571,7 +1637,7 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    /* SERVERINFO — embed */
+    /* SERVERINFO */
 
     if (commandName === "serverinfo") {
       const guild = interaction.guild;
@@ -1591,7 +1657,7 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    /* AVATAR — embed (image display needs it) */
+    /* AVATAR */
 
     if (commandName === "avatar") {
       const user = interaction.options.getUser("user") || interaction.user;
@@ -1604,12 +1670,12 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    /* TICKET PANEL — panel embed stays, confirmation is plain text */
+    /* TICKET PANEL */
 
     if (commandName === "ticketpanel") {
       await interaction.channel.send({
         embeds: [ticketPanelEmbed()],
-        components: ticketPanelRows()
+        components: ticketPanelRow()
       });
 
       return interaction.reply({
@@ -1618,13 +1684,19 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* GIVEAWAY — embed (structured data) */
+    /* GIVEAWAY */
 
     if (commandName === "giveaway") {
       const durationInput = interaction.options.getString("duration", true);
       const winners = interaction.options.getInteger("winners", true);
       const prize = interaction.options.getString("prize", true);
       const image = interaction.options.getAttachment("image");
+
+      const w1 = interaction.options.getUser("winner1");
+      const w2 = interaction.options.getUser("winner2");
+      const w3 = interaction.options.getUser("winner3");
+
+      const guaranteed = [w1, w2, w3].filter(Boolean).map(u => u.id);
 
       const durationMs = parseDuration(durationInput);
 
@@ -1672,6 +1744,7 @@ client.on("interactionCreate", async interaction => {
         winners,
         endAt,
         imageUrl: image ? image.url : null,
+        guaranteed,
         entries: []
       };
 
@@ -1683,7 +1756,7 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    /* REROLL — embed */
+    /* REROLL */
 
     if (commandName === "reroll") {
       const messageId = interaction.options.getString("messageid", true);
@@ -1696,23 +1769,52 @@ client.on("interactionCreate", async interaction => {
         });
       }
 
-      if (!giveaway.entries.length) {
+      if (!giveaway.entries.length && !(giveaway.guaranteed && giveaway.guaranteed.length)) {
         return interaction.reply({
           content: "❌ There are no entries.",
           ephemeral: true
         });
       }
 
-      const winner = giveaway.entries[Math.floor(Math.random() * giveaway.entries.length)];
+      const winners = pickWinners(giveaway);
 
       return interaction.reply({
         embeds: [
           new EmbedBuilder()
             .setColor(COLORS.green)
             .setTitle("🎉 Giveaway Rerolled")
-            .setDescription(`New winner: <@${winner}>\n\nPrize: **${giveaway.prize}**`)
+            .setDescription(`New winner(s): ${winners.map(id => `<@${id}>`).join(", ")}\n\nPrize: **${giveaway.prize}**`)
         ]
       });
+    }
+
+    /* END GIVEAWAY */
+
+    if (commandName === "endgiveaway") {
+      const messageId = interaction.options.getString("messageid", true);
+      const giveaway = data.giveaways[messageId];
+
+      if (!giveaway) {
+        return interaction.reply({
+          content: "❌ Giveaway not found.",
+          ephemeral: true
+        });
+      }
+
+      if (giveaway.finished) {
+        return interaction.reply({
+          content: "❌ That giveaway has already ended.",
+          ephemeral: true
+        });
+      }
+
+      await interaction.reply({
+        content: "✅ Ending the giveaway now...",
+        ephemeral: true
+      });
+
+      giveaway.endAt = Date.now();
+      await finishGiveaway(messageId, giveaway);
     }
   } catch (error) {
     console.error(error);
@@ -1743,7 +1845,7 @@ client.on("interactionCreate", async interaction => {
     });
   }
 
-  if (Date.now() >= giveaway.endAt) {
+  if (Date.now() >= giveaway.endAt || giveaway.finished) {
     return interaction.reply({
       content: "❌ This giveaway has already ended.",
       ephemeral: true
@@ -1767,66 +1869,16 @@ client.on("interactionCreate", async interaction => {
 });
 
 /* =========================================================
-   GIVEAWAY FINISHER
+   GIVEAWAY TIMER
 ========================================================= */
 
 setInterval(async () => {
   for (const [messageId, giveaway] of Object.entries(data.giveaways)) {
+    if (giveaway.finished) continue;
     if (Date.now() < giveaway.endAt) continue;
 
     try {
-      const channel = await client.channels.fetch(giveaway.channelId);
-      if (!channel?.isTextBased()) continue;
-
-      let message;
-
-      try {
-        message = await channel.messages.fetch(messageId);
-      } catch {}
-
-      if (!giveaway.finished) {
-        giveaway.finished = true;
-
-        if (!giveaway.entries.length) {
-          await channel.send({
-            embeds: [
-              new EmbedBuilder()
-                .setColor(COLORS.red)
-                .setTitle("🎉 Giveaway Ended")
-                .setDescription(`Prize: **${giveaway.prize}**\n\nNo valid entries were found.`)
-            ]
-          });
-
-          saveData();
-          continue;
-        }
-
-        const shuffled = [...giveaway.entries].sort(() => Math.random() - 0.5);
-        const winners = shuffled.slice(0, Math.min(giveaway.winners, shuffled.length));
-
-        const resultEmbed = new EmbedBuilder()
-          .setColor(COLORS.green)
-          .setTitle("🎉 GIVEAWAY ENDED")
-          .setDescription(
-            `**Prize:** ${giveaway.prize}\n\n**Winner(s):** ${winners.map(id => `<@${id}>`).join(", ")}`
-          )
-          .setFooter({ text: "Kenk Community • Giveaway" });
-
-        if (giveaway.imageUrl) {
-          resultEmbed.setImage(giveaway.imageUrl);
-        }
-
-        await channel.send({
-          content: winners.map(id => `<@${id}>`).join(", "),
-          embeds: [resultEmbed]
-        });
-
-        if (message) {
-          await message.edit({ components: [] });
-        }
-
-        saveData();
-      }
+      await finishGiveaway(messageId, giveaway);
     } catch (error) {
       console.error("Giveaway error:", error);
     }
@@ -1883,8 +1935,6 @@ client.on("messageCreate", async message => {
         ? message.guild.roles.cache.get(existingRoleId)
         : null;
 
-      /* ,br delete */
-
       if (sub === "delete") {
         if (!existingRole) {
           return message.reply("❌ You don't have a booster custom role.");
@@ -1901,8 +1951,6 @@ client.on("messageCreate", async message => {
 
         return message.reply("✅ Your booster role has been **deleted**.");
       }
-
-      /* ,br color <hex> */
 
       if (sub === "color") {
         const hex = args[1];
@@ -1922,8 +1970,6 @@ client.on("messageCreate", async message => {
           return message.reply("❌ Invalid hex color, or I lack permission to edit that role.");
         }
       }
-
-      /* ,br icon <emoji> */
 
       if (sub === "icon") {
         const emoji = args[1];
@@ -1945,8 +1991,6 @@ client.on("messageCreate", async message => {
           );
         }
       }
-
-      /* ,br <name> — create or rename */
 
       const name = args.join(" ");
 
@@ -2013,8 +2057,6 @@ client.on("messageCreate", async message => {
 
     if (!isStaff(message.member)) return;
 
-    /* BAN — embed */
-
     if (command === "ban") {
       const member = message.mentions.members.first();
 
@@ -2043,8 +2085,6 @@ client.on("messageCreate", async message => {
       });
     }
 
-    /* UNBAN — embed */
-
     if (command === "unban") {
       const userId = args[0];
 
@@ -2058,8 +2098,6 @@ client.on("messageCreate", async message => {
 
       return message.channel.send(`✅ User ID: \`${userId}\` has been unbanned.\n**Reason:** ${reason}`);
     }
-
-    /* KICK — embed */
 
     if (command === "kick") {
       const member = message.mentions.members.first();
@@ -2089,8 +2127,6 @@ client.on("messageCreate", async message => {
       });
     }
 
-    /* MUTE — embed */
-
     if (command === "mute") {
       const member = message.mentions.members.first();
       const minutes = Number(args[1]);
@@ -2117,8 +2153,6 @@ client.on("messageCreate", async message => {
       });
     }
 
-    /* UNMUTE — embed */
-
     if (command === "unmute") {
       const member = message.mentions.members.first();
       if (!member) return;
@@ -2138,8 +2172,6 @@ client.on("messageCreate", async message => {
         ]
       });
     }
-
-    /* WARN — embed */
 
     if (command === "warn") {
       const member = message.mentions.members.first();
@@ -2169,8 +2201,6 @@ client.on("messageCreate", async message => {
       });
     }
 
-    /* UNWARN — embed */
-
     if (command === "unwarn") {
       const member = message.mentions.members.first();
       const number = Number(args[1]);
@@ -2193,8 +2223,6 @@ client.on("messageCreate", async message => {
       );
     }
 
-    /* WARNINGS — embed */
-
     if (command === "warnings") {
       const member = message.mentions.members.first();
       if (!member) return;
@@ -2214,8 +2242,6 @@ client.on("messageCreate", async message => {
         ]
       });
     }
-
-    /* PURGE — plain text */
 
     if (command === "purge") {
       const member = message.mentions.members.first();
@@ -2239,8 +2265,6 @@ client.on("messageCreate", async message => {
         .then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
     }
 
-    /* CLEAN — plain text */
-
     if (command === "clean") {
       const amount = Number(args[0]);
 
@@ -2258,8 +2282,6 @@ client.on("messageCreate", async message => {
         .then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
     }
 
-    /* CLEAR — plain text */
-
     if (command === "clear") {
       const amount = Number(args[0]);
       if (!amount) return;
@@ -2271,21 +2293,15 @@ client.on("messageCreate", async message => {
         .then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
     }
 
-    /* LOCK — plain text */
-
     if (command === "lock") {
       await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: false });
       return message.channel.send("🔒 Members can no longer send messages here.");
     }
 
-    /* UNLOCK — plain text */
-
     if (command === "unlock") {
       await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: null });
       return message.channel.send("🔓 Members can send messages here again.");
     }
-
-    /* SLOWMODE — plain text */
 
     if (command === "slowmode") {
       const seconds = Number(args[0]);
@@ -2295,8 +2311,6 @@ client.on("messageCreate", async message => {
       return message.channel.send(`⏱️ Slowmode is now **${seconds}s**.`);
     }
 
-    /* SAY — plain text */
-
     if (command === "say") {
       const text = args.join(" ");
       if (!text) return;
@@ -2304,8 +2318,6 @@ client.on("messageCreate", async message => {
       await message.delete().catch(() => {});
       return message.channel.send(text);
     }
-
-    /* DM — plain text */
 
     if (command === "dm") {
       const member = message.mentions.members.first();
@@ -2322,12 +2334,10 @@ client.on("messageCreate", async message => {
       }
     }
 
-    /* TICKET PANEL */
-
     if (command === "ticketpanel") {
       await message.channel.send({
         embeds: [ticketPanelEmbed()],
-        components: ticketPanelRows()
+        components: ticketPanelRow()
       });
 
       return message.delete().catch(() => {});
